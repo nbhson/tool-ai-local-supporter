@@ -1,9 +1,29 @@
 import os
 import re
 import subprocess
+import shlex
 import config
 from services.helper_service import safe_join_project_path
 from services.logger import log
+
+
+# Whitelist of allowed commands (prefix match). Commands not starting with
+# any allowed prefix are rejected. This is a safety guard for the shell=True
+# execution path — do NOT add generic entries like "sh" or "bash" here.
+ALLOWED_CMD_PREFIXES = (
+    "python", "python3", "pip", "pip3",
+    "npm", "npx", "node", "bun", "pnpm",
+    "cargo", "rustc", "go", "make",
+    "git", "ruff", "flake8", "eslint",
+    "curl", "wget",
+)
+
+
+def _is_cmd_allowed(command: str) -> bool:
+    """Check if command starts with an allowed prefix (simple safety gate)."""
+    first_word = command.strip().split()[0] if command.strip() else ""
+    return any(first_word.startswith(p) for p in ALLOWED_CMD_PREFIXES)
+
 
 class BaseAgentTool:
     def execute(self, args: dict, project_path: str) -> str:
@@ -101,6 +121,9 @@ class RunCommandTool(BaseAgentTool):
         command = args.get('command', '').strip()
         if not command:
             return "Error: Empty command"
+        if not _is_cmd_allowed(command):
+            return (f"Error: Command '{command.split()[0]}' is not in the allowed list. "
+                    f"Allowed prefixes: {', '.join(ALLOWED_CMD_PREFIXES)}")
         try:
             res = subprocess.run(
                 command,
@@ -261,6 +284,9 @@ class RunTestsTool(BaseAgentTool):
 
     @staticmethod
     def _run_cmd(command, project_path):
+        if not _is_cmd_allowed(command):
+            return (f"Error: Command '{command.split()[0] if command.split() else ''}' is not in the allowed list. "
+                    f"Allowed prefixes: {', '.join(ALLOWED_CMD_PREFIXES)}")
         try:
             res = subprocess.run(
                 command, shell=True, cwd=project_path,
@@ -307,6 +333,9 @@ class LintCodeTool(BaseAgentTool):
 
     @staticmethod
     def _run_lint_cmd(command, project_path):
+        if not _is_cmd_allowed(command):
+            return (f"Error: Command '{command.split()[0] if command.split() else ''}' is not in the allowed list. "
+                    f"Allowed prefixes: {', '.join(ALLOWED_CMD_PREFIXES)}")
         try:
             res = subprocess.run(
                 command, shell=True, cwd=project_path,
