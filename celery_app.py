@@ -1,9 +1,11 @@
-import sys
 import os
+import sys
+
 # Ensure the current project directory is in the python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from celery import Celery
+
 import config
 
 celery = Celery(

@@ -1,14 +1,18 @@
-import uuid
 import json
-from flask import Blueprint, request, jsonify, Response
+import uuid
+
+from flask import Blueprint, Response, jsonify, request
 
 import config
-from services.database import db
-from services.models import ChatSession, ChatMessage
-from services.ollama_service import call_ollama
-from services.helper_service import get_lang_instruction, retrieve_chat_history, save_chat_message
-from services.repositories import ChatSessionRepository, ChatMessageRepository
+from services.helper_service import (
+    get_lang_instruction,
+    retrieve_chat_history,
+    save_chat_message,
+)
 from services.logger import log
+from services.models import ChatSession
+from services.ollama_service import call_ollama
+from services.repositories import ChatMessageRepository, ChatSessionRepository
 
 chat_bp = Blueprint('chat', __name__)
 

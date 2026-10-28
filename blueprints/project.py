@@ -1,22 +1,23 @@
 import os
 import uuid
-import json
-import logging
-import re
-import subprocess
-import time
-from flask import Blueprint, request, jsonify, Response
+
+from flask import Blueprint, Response, jsonify, request
+from werkzeug.utils import secure_filename
 
 import config
-from services.database import db
-from services.models import ProjectSession
 from services.agent_service import (
-    scan_directory_and_stats, get_simple_tree_str, generate_agent_stream,
-    get_cached_project_tree, set_cached_project_tree, invalidate_project_tree_cache
+    generate_agent_stream,
+    get_cached_project_tree,
+    get_simple_tree_str,
+    invalidate_project_tree_cache,
+    scan_directory_and_stats,
+    set_cached_project_tree,
 )
-from services.errors import SessionNotFoundError, InvalidRequestError
-from services.repositories import ProjectSessionRepository
+from services.errors import InvalidRequestError, SessionNotFoundError
+from services.helper_service import safe_join_project_path
 from services.logger import log
+from services.models import ProjectSession
+from services.repositories import ProjectSessionRepository
 
 project_bp = Blueprint('project', __name__)
 
@@ -106,30 +107,41 @@ def upload_project_files(session_id):
     os.makedirs(project_dir, exist_ok=True)
 
     try:
-        uploaded_count = 0
-        for file, path in zip(files, paths):
-            # Clean up paths to ensure no path traversal vulnerability
+        # Phase 1 — validate all destination paths before saving anything,
+        # so a single invalid path can't leave a half-written project dir.
+        pending = []  # (file, dest_filepath)
+        for idx, file in enumerate(files):
             # webkitRelativePath format is "root-folder-name/sub-folder/file.txt"
+            path = (paths[idx] if idx < len(paths) else '').replace('\\', '/').strip()
             parts = path.split('/')
             if len(parts) > 1:
                 # Strip the root folder name from relative path to keep structure cleaner
                 rel_path = os.path.join(*parts[1:])
-            else:
+            elif path:
                 rel_path = path
-                
-            # Exclude folders
-            skip = False
-            for part in parts:
-                if part in EXCLUDE_DIRS:
-                    skip = True
-                    break
-            if skip:
+            else:
+                # No path info — use the original filename (sanitized)
+                rel_path = secure_filename(file.filename) if file.filename else ''
+            if not rel_path:
+                return jsonify({"error": "Missing path for an uploaded file"}), 400
+
+            # Exclude folders by dir name (e.g. .git/, node_modules/)
+            if any(part in EXCLUDE_DIRS for part in parts):
                 continue
-                
-            dest_filepath = os.path.join(project_dir, rel_path)
+
+            # Guard against path traversal: safe_join_project_path resolves the
+            # path and raises ValueError if it escapes project_dir.
+            try:
+                dest_filepath = safe_join_project_path(project_dir, rel_path)
+            except ValueError:
+                return jsonify({"error": f"Invalid file path: {path}"}), 400
+            pending.append((file, dest_filepath))
+
+        # Phase 2 — save validated files
+        for file, dest_filepath in pending:
             os.makedirs(os.path.dirname(dest_filepath), exist_ok=True)
             file.save(dest_filepath)
-            uploaded_count += 1
+        uploaded_count = len(pending)
 
         log.info("All files saved", uploaded_count=uploaded_count)
         session.project_path = project_dir
@@ -274,7 +286,7 @@ def chat_project(session_id):
                     context_str_parts.append(f"\nFile: `{rel_path}`\n```\n{content}\n```")
                     loaded_files += 1
                 except Exception as e:
-                    context_str_parts.append(f"\nFile: `{rel_path}` (Error reading content: {str(e)})")
+                    context_str_parts.append(f"\nFile: `{rel_path}` (Error reading content: {e!s})")
         context_str = "\n".join(context_str_parts)
         log.info("Context files loaded", loaded_count=loaded_files, total_size=len(context_str))
 

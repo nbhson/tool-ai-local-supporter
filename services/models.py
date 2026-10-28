@@ -1,6 +1,9 @@
 from datetime import datetime
-from services.database import db
+
 from sqlalchemy.orm import deferred
+
+from services.database import db
+
 
 class DocumentSession(db.Model):
     __tablename__ = 'document_sessions'

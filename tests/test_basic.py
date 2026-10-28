@@ -1,7 +1,9 @@
 import pytest
+
+from services.agent_service import get_simple_tree_str, parse_tool_call
 from services.document_service import allowed_file, is_image_file
 from services.ollama_service import is_vision_model
-from services.agent_service import parse_tool_call, get_simple_tree_str
+
 
 def test_allowed_file():
     assert allowed_file("test.pdf") is True
@@ -68,7 +70,7 @@ def test_get_simple_tree_str():
     assert any("services" in line for line in lines)
 
 def test_helper_service():
-    from services.helper_service import get_lang_instruction, format_sse_event
+    from services.helper_service import format_sse_event, get_lang_instruction
     assert get_lang_instruction("en") == "Respond in English."
     assert get_lang_instruction("vi") == "Respond in Vietnamese."
     
@@ -86,8 +88,9 @@ def test_agent_tools():
     assert "Error: File not found" in ToolRegistry.execute_tool("READ_FILE", {"path": "non_existent.txt"}, ".")
 
 def test_safe_join_project_path():
-    from services.helper_service import safe_join_project_path
     import os
+
+    from services.helper_service import safe_join_project_path
     base = os.path.abspath(".")
     
     # Valid join
@@ -102,7 +105,11 @@ def test_safe_join_project_path():
         safe_join_project_path(base, "/etc/passwd")
 
 def test_project_tree_cache():
-    from services.agent_service import get_cached_project_tree, set_cached_project_tree, invalidate_project_tree_cache
+    from services.agent_service import (
+        get_cached_project_tree,
+        invalidate_project_tree_cache,
+        set_cached_project_tree,
+    )
     session_id = "test_session_123"
     
     # Initially cache should be empty

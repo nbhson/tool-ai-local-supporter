@@ -1,12 +1,13 @@
+import base64
+import io
+import logging
 import os
 import time
-import logging
-import io
-import base64
-import docx
+
 from PIL import Image
-import pytesseract
+
 import config
+
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -18,6 +19,7 @@ def is_image_file(filepath):
 
 from services.extractor_service import ExtractorFactory
 
+
 def extract_text_from_image_ocr(filepath):
     """Extract text from image using Tesseract OCR."""
     extractor = ExtractorFactory.get_extractor(filepath)
@@ -26,7 +28,7 @@ def extract_text_from_image_ocr(filepath):
             text = extractor.extract(filepath)
             return text if text else None
         except Exception as e:
-            return f"OCR Error: {str(e)}"
+            return f"OCR Error: {e!s}"
     return None
 
 def extract_text_from_file(filepath):
@@ -41,7 +43,7 @@ def extract_text_from_file(filepath):
             return None
         return extractor.extract(filepath)
     except Exception as e:
-        return f"Error extracting text: {str(e)}"
+        return f"Error extracting text: {e!s}"
 
 def resize_and_compress_image(filepath, max_size=None, quality=None):
     """Resize image to reduce base64 size."""

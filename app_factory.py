@@ -1,10 +1,12 @@
+import logging
 import os
 import time
-import logging
+
 import requests
-from flask import Flask, render_template, jsonify
-from services.database import db
+from flask import Flask, jsonify, render_template
+
 import config
+from services.database import db
 
 _cached_models = None
 _cached_time = 0
@@ -52,8 +54,8 @@ def create_app():
         db.create_all()
         
     # Import and register blueprints inside to prevent circular dependency
-    from blueprints.doc import doc_bp
     from blueprints.chat import chat_bp
+    from blueprints.doc import doc_bp
     from blueprints.project import project_bp
     
     app.register_blueprint(doc_bp, url_prefix='/api/doc')

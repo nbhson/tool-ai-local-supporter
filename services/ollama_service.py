@@ -1,7 +1,8 @@
 import json
-import logging
 import time
+
 import requests
+
 import config
 from services.logger import log
 
@@ -79,12 +80,12 @@ def call_ollama(messages, model=None, stream=False):
                 err_msg = "Cannot connect to Ollama. Make sure Ollama is running"
                 return generate_error(err_msg) if stream else {"error": err_msg}
         except requests.exceptions.Timeout:
-            log.ollama_error("TIMEOUT", f"Request timed out after 600s")
+            log.ollama_error("TIMEOUT", "Request timed out after 600s")
             err_msg = "Request timed out."
             return generate_error(err_msg) if stream else {"error": err_msg}
         except Exception as e:
             log.error(f"Unexpected error in call_ollama: {e}")
-            err_msg = f"Ollama error: {str(e)}"
+            err_msg = f"Ollama error: {e!s}"
             return generate_error(err_msg) if stream else {"error": err_msg}
 
 

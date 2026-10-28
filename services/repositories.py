@@ -1,5 +1,12 @@
 from services.database import db
-from services.models import DocumentSession, DocumentFile, ChatSession, ProjectSession, ChatMessage
+from services.models import (
+    ChatMessage,
+    ChatSession,
+    DocumentFile,
+    DocumentSession,
+    ProjectSession,
+)
+
 
 class DocumentSessionRepository:
     @staticmethod

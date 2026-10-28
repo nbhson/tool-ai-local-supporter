@@ -1,9 +1,10 @@
-import os
 import json
-import config
+import os
+
+from services.logger import log
 from services.models import ChatMessage
 from services.repositories import ChatMessageRepository
-from services.logger import log
+
 
 def get_lang_instruction(language):
     return "Respond in English." if language == "en" else "Respond in Vietnamese."

@@ -1,8 +1,10 @@
 import os
 import re
-import requests
+
 import chromadb
+import requests
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 import config
 
 # Initialize local ChromaDB persistent client

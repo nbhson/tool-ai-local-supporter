@@ -1,15 +1,18 @@
+import json
+import logging
 import os
 import re
 import time
-import json
-import logging
-import subprocess
+
 import config
-from services.database import db
-from services.models import ChatMessage
-from services.ollama_service import call_ollama
-from services.helper_service import get_lang_instruction, format_sse_event, retrieve_chat_history, save_chat_message
+from services.helper_service import (
+    format_sse_event,
+    get_lang_instruction,
+    retrieve_chat_history,
+    save_chat_message,
+)
 from services.logger import log
+from services.ollama_service import call_ollama
 
 # In-memory cache for project tree with TTL (prevents unbounded memory growth)
 # Format: session_id -> {"tree": tree, "stats": stats, "timestamp": float}
@@ -231,6 +234,7 @@ def parse_tool_call(text):
     return calls[0] if calls else None
 
 from services.agent_tool_service import ToolRegistry
+
 
 def execute_agent_tool(tool_name, args, project_path):
     return ToolRegistry.execute_tool(tool_name, args, project_path)

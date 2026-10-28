@@ -1,15 +1,18 @@
-import os
 import base64
 import logging
+
 from celery_app import celery
-from services.document_service import (
-    extract_text_from_file, extract_text_from_image_ocr,
-    is_image_file, resize_and_compress_image
-)
-from services.rag_service import index_document
 from services.database import db
-from services.models import DocumentSession, DocumentFile, ChatMessage
+from services.document_service import (
+    extract_text_from_file,
+    extract_text_from_image_ocr,
+    is_image_file,
+    resize_and_compress_image,
+)
+from services.models import ChatMessage, DocumentFile, DocumentSession
 from services.ollama_service import is_vision_model
+from services.rag_service import index_document
+
 
 def _process_single_file(doc_file, model, is_vision):
     """Processes a single document or image file and returns (extracted_text, base64_image, error)."""

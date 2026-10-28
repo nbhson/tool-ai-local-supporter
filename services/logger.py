@@ -12,11 +12,11 @@ Usage:
     log.ollama_request("mistral", messages_count=5)
 """
 
-import logging
-import time
-import os
 import json
+import logging
+import os
 from datetime import datetime
+
 
 # ── ANSI Color Codes ──────────────────────────────────────────
 class C:
@@ -197,7 +197,7 @@ class AILogger:
 
     def agent_ollama_call(self, session_id, iteration, messages_count):
         """Log when Ollama API is called."""
-        self._log("ollama", f"📞 Calling Ollama API...", session=_short_session(session_id), iteration=iteration + 1, messages_in_context=messages_count)
+        self._log("ollama", "📞 Calling Ollama API...", session=_short_session(session_id), iteration=iteration + 1, messages_in_context=messages_count)
 
     def agent_ollama_response(self, session_id, iteration, response_len):
         """Log when Ollama response is received."""
@@ -311,10 +311,7 @@ class AILogger:
             return f"(pattern='{args.get('pattern', '')}')"
         elif tool_name == "RUN_COMMAND":
             return f"({args.get('command', '')})"
-        elif tool_name == "RUN_TESTS":
-            cmd = args.get('command', '')
-            return f"({cmd})" if cmd else "(auto-detect)"
-        elif tool_name == "LINT_CODE":
+        elif tool_name == "RUN_TESTS" or tool_name == "LINT_CODE":
             cmd = args.get('command', '')
             return f"({cmd})" if cmd else "(auto-detect)"
         elif tool_name == "GIT_DIFF":

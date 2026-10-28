@@ -1,28 +1,56 @@
 import os
 import re
-import subprocess
 import shlex
+import subprocess
+
 import config
 from services.helper_service import safe_join_project_path
 from services.logger import log
 
-
-# Whitelist of allowed commands (prefix match). Commands not starting with
-# any allowed prefix are rejected. This is a safety guard for the shell=True
-# execution path — do NOT add generic entries like "sh" or "bash" here.
-ALLOWED_CMD_PREFIXES = (
+# Whitelist of allowed commands (exact match on the executable name). Commands
+# not in this list are rejected. This guards the agent's command execution —
+# do NOT add generic entries like "sh" or "bash" here.
+ALLOWED_COMMANDS = frozenset({
     "python", "python3", "pip", "pip3",
     "npm", "npx", "node", "bun", "pnpm",
     "cargo", "rustc", "go", "make",
     "git", "ruff", "flake8", "eslint",
     "curl", "wget",
-)
+})
+
+# Shell control operators. Commands containing these as standalone tokens are
+# rejected: execution runs with shell=False, so shell syntax is never
+# interpreted — better to fail loudly than to run a command whose arguments
+# were silently mangled.
+_SHELL_OPERATOR_TOKENS = frozenset({';', ';;', '&', '&&', '||', '|', '<', '>'})
 
 
-def _is_cmd_allowed(command: str) -> bool:
-    """Check if command starts with an allowed prefix (simple safety gate)."""
-    first_word = command.strip().split()[0] if command.strip() else ""
-    return any(first_word.startswith(p) for p in ALLOWED_CMD_PREFIXES)
+def _parse_allowed_command(command: str):
+    """Tokenize and validate a command for safe execution (shell=False).
+
+    Returns (argv, None) when allowed, or (None, error_message) when rejected.
+    Rejects non-whitelisted executables (exact name match) and shell control
+    operators that would enable command chaining/piping/redirection.
+    """
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=';|&<>')
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return None, "Error: Could not parse command (unbalanced quotes?)."
+    if not tokens:
+        return None, "Error: Empty command"
+    if tokens[0] in _SHELL_OPERATOR_TOKENS or tokens[0] in ('(', ')'):
+        return None, f"Error: Invalid command syntax: '{tokens[0]}'"
+    executable = os.path.basename(tokens[0])
+    if executable not in ALLOWED_COMMANDS:
+        return None, (f"Error: Command '{tokens[0]}' is not in the allowed list. "
+                      f"Allowed commands: {', '.join(sorted(ALLOWED_COMMANDS))}")
+    for token in tokens[1:]:
+        if token in _SHELL_OPERATOR_TOKENS:
+            return None, ("Error: Shell operators (pipes, chaining, redirection) are "
+                          "not supported. Run one command at a time.")
+    return tokens, None
 
 
 class BaseAgentTool:
@@ -35,7 +63,7 @@ class ReadFileTool(BaseAgentTool):
         try:
             filepath = safe_join_project_path(project_path, path)
         except ValueError as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"
         if not os.path.exists(filepath):
             return f"Error: File not found: {path}"
         if os.path.isdir(filepath):
@@ -45,7 +73,7 @@ class ReadFileTool(BaseAgentTool):
                 content = f.read()
             return f"--- Content of {path} ---\n{content}\n----------------"
         except Exception as e:
-            return f"Error reading file: {str(e)}"
+            return f"Error reading file: {e!s}"
 
 class WriteFileTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
@@ -54,14 +82,14 @@ class WriteFileTool(BaseAgentTool):
         try:
             filepath = safe_join_project_path(project_path, path)
         except ValueError as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"
         try:
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(content)
             return f"Success: File written successfully to {path}"
         except Exception as e:
-            return f"Error writing file: {str(e)}"
+            return f"Error writing file: {e!s}"
 
 class ListDirTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
@@ -69,7 +97,7 @@ class ListDirTool(BaseAgentTool):
         try:
             target_path = safe_join_project_path(project_path, path)
         except ValueError as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"
         if not os.path.exists(target_path):
             return f"Error: Directory not found: {path}"
         try:
@@ -81,7 +109,7 @@ class ListDirTool(BaseAgentTool):
                 entries.append(f"{'[DIR]' if entry.is_dir() else '[FILE]'} {rel}")
             return "\n".join(sorted(entries)) if entries else "Empty directory"
         except Exception as e:
-            return f"Error listing directory: {str(e)}"
+            return f"Error listing directory: {e!s}"
 
 class SearchFilesTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
@@ -114,20 +142,19 @@ class SearchFilesTool(BaseAgentTool):
                         pass
             return "\n".join(results[:50]) if results else "No matches found"
         except Exception as e:
-            return f"Error searching files: {str(e)}"
+            return f"Error searching files: {e!s}"
 
 class RunCommandTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
         command = args.get('command', '').strip()
         if not command:
             return "Error: Empty command"
-        if not _is_cmd_allowed(command):
-            return (f"Error: Command '{command.split()[0]}' is not in the allowed list. "
-                    f"Allowed prefixes: {', '.join(ALLOWED_CMD_PREFIXES)}")
+        argv, error = _parse_allowed_command(command)
+        if error:
+            return error
         try:
             res = subprocess.run(
-                command,
-                shell=True,
+                argv,
                 cwd=project_path,
                 capture_output=True,
                 text=True,
@@ -142,7 +169,7 @@ class RunCommandTool(BaseAgentTool):
         except subprocess.TimeoutExpired:
             return "Error: Command timed out after 30 seconds."
         except Exception as e:
-            return f"Error executing command: {str(e)}"
+            return f"Error executing command: {e!s}"
 
 class FinishTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
@@ -161,7 +188,7 @@ class EditFileTool(BaseAgentTool):
         try:
             filepath = safe_join_project_path(project_path, path)
         except ValueError as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"
         if not os.path.exists(filepath):
             return f"Error: File not found: {path}"
         try:
@@ -177,7 +204,7 @@ class EditFileTool(BaseAgentTool):
                 f.write(new_content)
             return f"Success: File edited successfully at {path}"
         except Exception as e:
-            return f"Error editing file: {str(e)}"
+            return f"Error editing file: {e!s}"
 
 
 class GitDiffTool(BaseAgentTool):
@@ -200,7 +227,7 @@ class GitDiffTool(BaseAgentTool):
         except FileNotFoundError:
             return "Error: git is not installed or not in PATH."
         except Exception as e:
-            return f"Error running git diff: {str(e)}"
+            return f"Error running git diff: {e!s}"
 
 
 class GitLogTool(BaseAgentTool):
@@ -219,7 +246,7 @@ class GitLogTool(BaseAgentTool):
         except FileNotFoundError:
             return "Error: git is not installed or not in PATH."
         except Exception as e:
-            return f"Error running git log: {str(e)}"
+            return f"Error running git log: {e!s}"
 
 
 class RunTestsTool(BaseAgentTool):
@@ -284,12 +311,12 @@ class RunTestsTool(BaseAgentTool):
 
     @staticmethod
     def _run_cmd(command, project_path):
-        if not _is_cmd_allowed(command):
-            return (f"Error: Command '{command.split()[0] if command.split() else ''}' is not in the allowed list. "
-                    f"Allowed prefixes: {', '.join(ALLOWED_CMD_PREFIXES)}")
+        argv, error = _parse_allowed_command(command)
+        if error:
+            return error
         try:
             res = subprocess.run(
-                command, shell=True, cwd=project_path,
+                argv, cwd=project_path,
                 capture_output=True, text=True, timeout=60
             )
             output = f"Exit code: {res.returncode}\n"
@@ -303,7 +330,7 @@ class RunTestsTool(BaseAgentTool):
         except subprocess.TimeoutExpired:
             return "Error: Tests timed out after 60 seconds."
         except Exception as e:
-            return f"Error running tests: {str(e)}"
+            return f"Error running tests: {e!s}"
 
 
 class LintCodeTool(BaseAgentTool):
@@ -333,12 +360,12 @@ class LintCodeTool(BaseAgentTool):
 
     @staticmethod
     def _run_lint_cmd(command, project_path):
-        if not _is_cmd_allowed(command):
-            return (f"Error: Command '{command.split()[0] if command.split() else ''}' is not in the allowed list. "
-                    f"Allowed prefixes: {', '.join(ALLOWED_CMD_PREFIXES)}")
+        argv, error = _parse_allowed_command(command)
+        if error:
+            return error
         try:
             res = subprocess.run(
-                command, shell=True, cwd=project_path,
+                argv, cwd=project_path,
                 capture_output=True, text=True, timeout=60
             )
             output = ""
@@ -353,7 +380,7 @@ class LintCodeTool(BaseAgentTool):
         except subprocess.TimeoutExpired:
             return "Error: Linting timed out after 60 seconds."
         except Exception as e:
-            return f"Error running linter: {str(e)}"
+            return f"Error running linter: {e!s}"
 
 
 class RegexSearchTool(BaseAgentTool):
@@ -366,7 +393,7 @@ class RegexSearchTool(BaseAgentTool):
         try:
             compiled = re.compile(pattern, re.IGNORECASE)
         except re.error as e:
-            return f"Error: Invalid regex pattern: {str(e)}"
+            return f"Error: Invalid regex pattern: {e!s}"
 
         results = []
         try:
@@ -394,7 +421,7 @@ class RegexSearchTool(BaseAgentTool):
                     break
             return "\n".join(results) if results else "No matches found."
         except Exception as e:
-            return f"Error searching files: {str(e)}"
+            return f"Error searching files: {e!s}"
 
 
 class ToolRegistry:

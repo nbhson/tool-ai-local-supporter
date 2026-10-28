@@ -1,23 +1,30 @@
-import os
-import uuid
-import base64
-import logging
-import time
-import threading
 import json
-from flask import Blueprint, request, jsonify, Response, current_app, send_from_directory
+import os
+import threading
+import time
+import uuid
+
+from flask import (
+    Blueprint,
+    Response,
+    current_app,
+    jsonify,
+    request,
+    send_from_directory,
+)
 from werkzeug.utils import secure_filename
 
 import config
-from services.database import db
-from services.models import DocumentSession, DocumentFile, ChatMessage
-from services.repositories import DocumentSessionRepository, ChatMessageRepository
-from services.document_service import (
-    allowed_file, is_image_file, cleanup_old_uploads
+from services.document_service import allowed_file, cleanup_old_uploads, is_image_file
+from services.helper_service import (
+    get_lang_instruction,
+    retrieve_chat_history,
+    save_chat_message,
 )
-from services.rag_service import retrieve_context
+from services.models import DocumentFile, DocumentSession
 from services.ollama_service import call_ollama, is_vision_model
-from services.helper_service import get_lang_instruction, retrieve_chat_history, save_chat_message
+from services.rag_service import retrieve_context
+from services.repositories import ChatMessageRepository, DocumentSessionRepository
 from tasks import process_document_task
 
 doc_bp = Blueprint('doc', __name__)

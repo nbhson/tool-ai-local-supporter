@@ -1,9 +1,8 @@
-import os
-import pypdf
 import docx
-import config
-from PIL import Image
+import pypdf
 import pytesseract
+from PIL import Image
+
 
 class BaseExtractor:
     def extract(self, filepath: str) -> str:
@@ -35,7 +34,7 @@ class ImageOcrExtractor(BaseExtractor):
             text = pytesseract.image_to_string(img, lang='vie+eng')
             return text.strip() if text.strip() else ""
         except Exception as e:
-            return f"OCR Error: {str(e)}"
+            return f"OCR Error: {e!s}"
 
 class ExtractorFactory:
     _extractors = {
