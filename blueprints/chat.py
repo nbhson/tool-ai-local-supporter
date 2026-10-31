@@ -16,50 +16,45 @@ from services.models import ChatSession
 from services.ollama_service import call_ollama
 from services.repositories import ChatMessageRepository, ChatSessionRepository
 
-chat_bp = Blueprint('chat', __name__)
+chat_bp = Blueprint("chat", __name__)
 
 # --- FREE CHAT ENDPOINTS ---
 
-@chat_bp.route('/init', methods=['POST'])
+
+@chat_bp.route("/init", methods=["POST"])
 def init_chat():
     data = request.json or {}
-    model = data.get('model', config.DEFAULT_MODEL)
-    ui_language = data.get('language', 'en')
+    model = data.get("model", config.DEFAULT_MODEL)
+    ui_language = data.get("language", "en")
 
     session_id = uuid.uuid4().hex
     log.route_request("POST", "/chat/init", model=model, language=ui_language)
     log.session_init(session_id, kind="chat")
 
-    if ui_language == 'vi':
+    if ui_language == "vi":
         greeting = "Xin chào! Tôi là trợ lý AI của bạn. Hôm nay tôi có thể giúp gì cho bạn?"
     else:
         greeting = "Hello! I am your AI assistant. How can I help you today?"
 
     # Create ChatSession in DB
-    session = ChatSession(
-        session_id=session_id,
-        model=model,
-        ui_language=ui_language
-    )
+    session = ChatSession(session_id=session_id, model=model, ui_language=ui_language)
     ChatSessionRepository.save(session)
 
     # Save initial greeting message
-    save_chat_message(session_id, 'assistant', greeting)
+    save_chat_message(session_id, "assistant", greeting)
 
     log.success("Chat session initialized", session_id=session_id[:12])
-    return jsonify({
-        "session_id": session_id,
-        "greeting": greeting
-    })
+    return jsonify({"session_id": session_id, "greeting": greeting})
 
-@chat_bp.route('/chat', methods=['POST'])
+
+@chat_bp.route("/chat", methods=["POST"])
 def chat_free():
     data = request.json
     if not data:
         return jsonify({"error": "No JSON data"}), 400
-    session_id = data.get('session_id')
-    question = data.get('question', '').strip()
-    language = data.get('language', 'en')
+    session_id = data.get("session_id")
+    question = data.get("question", "").strip()
+    language = data.get("language", "en")
 
     log.route_request("POST", "/chat/chat", session_id=(session_id or "")[:12], question_preview=question[:80])
 
@@ -69,7 +64,7 @@ def chat_free():
     if not question:
         return jsonify({"error": "Question cannot be empty"}), 400
 
-    model = data.get('model', session.model or config.DEFAULT_MODEL)
+    model = data.get("model", session.model or config.DEFAULT_MODEL)
 
     # Determine language instruction
     lang_instruction = get_lang_instruction(language)
@@ -84,7 +79,7 @@ def chat_free():
     messages.extend(history)
 
     # Save user message to history
-    save_chat_message(session_id, 'user', question)
+    save_chat_message(session_id, "user", question)
 
     # Append the new user question to active message context
     messages.append({"role": "user", "content": question})
@@ -99,6 +94,7 @@ def chat_free():
         # Use the app passed in from the request context — DB access inside
         with app.app_context():
             import time
+
             ollama_start = time.time()
             generator = call_ollama(messages, model, stream=True)
             full_answer = ""
@@ -112,12 +108,13 @@ def chat_free():
             log.ollama_success(ollama_ms)
 
             # Save assistant response to DB
-            save_chat_message(session_id, 'assistant', full_answer)
+            save_chat_message(session_id, "assistant", full_answer)
             log.info("Free chat response saved", answer_length=len(full_answer))
 
-    return Response(generate(), mimetype='text/event-stream')
+    return Response(generate(), mimetype="text/event-stream")
 
-@chat_bp.route('/session/<session_id>/clear', methods=['POST'])
+
+@chat_bp.route("/session/<session_id>/clear", methods=["POST"])
 def clear_chat_session(session_id):
     log.route_request("POST", f"/chat/session/{session_id[:12]}/clear")
 
@@ -131,4 +128,3 @@ def clear_chat_session(session_id):
         ChatMessageRepository.delete_messages(session_id, exclude_message_id=messages[0].id)
     log.success("Chat session cleared", session_id=session_id[:8])
     return jsonify({"success": True})
-

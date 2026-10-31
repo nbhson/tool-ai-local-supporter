@@ -1,4 +1,5 @@
 """Shared pytest fixtures for blueprint-level tests."""
+
 import pytest
 
 
@@ -13,8 +14,11 @@ def client(tmp_path, monkeypatch):
     """
     monkeypatch.chdir(tmp_path)
     from app_factory import create_app
-    app = create_app(config_overrides={
-        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'test.db'}",
-    })
+
+    app = create_app(
+        config_overrides={
+            "SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'test.db'}",
+        }
+    )
     app.config["TESTING"] = True
     return app.test_client()

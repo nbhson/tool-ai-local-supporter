@@ -13,19 +13,35 @@ from services.logger import log
 # Whitelist of allowed commands (exact match on the executable name). Commands
 # not in this list are rejected. This guards the agent's command execution —
 # do NOT add generic entries like "sh" or "bash" here.
-ALLOWED_COMMANDS = frozenset({
-    "python", "python3", "pip", "pip3",
-    "npm", "npx", "node", "bun", "pnpm",
-    "cargo", "rustc", "go", "make",
-    "git", "ruff", "flake8", "eslint",
-    "curl", "wget",
-})
+ALLOWED_COMMANDS = frozenset(
+    {
+        "python",
+        "python3",
+        "pip",
+        "pip3",
+        "npm",
+        "npx",
+        "node",
+        "bun",
+        "pnpm",
+        "cargo",
+        "rustc",
+        "go",
+        "make",
+        "git",
+        "ruff",
+        "flake8",
+        "eslint",
+        "curl",
+        "wget",
+    }
+)
 
 # Shell control operators. Commands containing these as standalone tokens are
 # rejected: execution runs with shell=False, so shell syntax is never
 # interpreted — better to fail loudly than to run a command whose arguments
 # were silently mangled.
-_SHELL_OPERATOR_TOKENS = frozenset({';', ';;', '&', '&&', '||', '|', '<', '>'})
+_SHELL_OPERATOR_TOKENS = frozenset({";", ";;", "&", "&&", "||", "|", "<", ">"})
 
 
 def _parse_allowed_command(command: str):
@@ -36,23 +52,26 @@ def _parse_allowed_command(command: str):
     operators that would enable command chaining/piping/redirection.
     """
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=';|&<>')
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";|&<>")
         lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
         return None, "Error: Could not parse command (unbalanced quotes?)."
     if not tokens:
         return None, "Error: Empty command"
-    if tokens[0] in _SHELL_OPERATOR_TOKENS or tokens[0] in ('(', ')'):
+    if tokens[0] in _SHELL_OPERATOR_TOKENS or tokens[0] in ("(", ")"):
         return None, f"Error: Invalid command syntax: '{tokens[0]}'"
     executable = os.path.basename(tokens[0])
     if executable not in ALLOWED_COMMANDS:
-        return None, (f"Error: Command '{tokens[0]}' is not in the allowed list. "
-                      f"Allowed commands: {', '.join(sorted(ALLOWED_COMMANDS))}")
+        return None, (
+            f"Error: Command '{tokens[0]}' is not in the allowed list. "
+            f"Allowed commands: {', '.join(sorted(ALLOWED_COMMANDS))}"
+        )
     for token in tokens[1:]:
         if token in _SHELL_OPERATOR_TOKENS:
-            return None, ("Error: Shell operators (pipes, chaining, redirection) are "
-                          "not supported. Run one command at a time.")
+            return None, (
+                "Error: Shell operators (pipes, chaining, redirection) are not supported. Run one command at a time."
+            )
     return tokens, None
 
 
@@ -83,9 +102,10 @@ class BaseAgentTool:
     def execute(self, args: dict, project_path: str) -> str:
         raise NotImplementedError("Each tool must implement execute")
 
+
 class ReadFileTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
-        path = args.get('path', '').strip()
+        path = args.get("path", "").strip()
         try:
             filepath = safe_join_project_path(project_path, path)
         except ValueError as e:
@@ -95,31 +115,33 @@ class ReadFileTool(BaseAgentTool):
         if os.path.isdir(filepath):
             return f"Error: {path} is a directory. Use LIST_DIR instead."
         try:
-            with open(filepath, encoding='utf-8', errors='replace') as f:
+            with open(filepath, encoding="utf-8", errors="replace") as f:
                 content = f.read()
             return f"--- Content of {path} ---\n{content}\n----------------"
         except Exception as e:
             return f"Error reading file: {e!s}"
 
+
 class WriteFileTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
-        path = args.get('path', '').strip()
-        content = args.get('content', '')
+        path = args.get("path", "").strip()
+        content = args.get("content", "")
         try:
             filepath = safe_join_project_path(project_path, path)
         except ValueError as e:
             return f"Error: {e!s}"
         try:
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(content)
             return f"Success: File written successfully to {path}"
         except Exception as e:
             return f"Error writing file: {e!s}"
 
+
 class ListDirTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
-        path = args.get('path', '').strip()
+        path = args.get("path", "").strip()
         try:
             target_path = safe_join_project_path(project_path, path)
         except ValueError as e:
@@ -137,9 +159,10 @@ class ListDirTool(BaseAgentTool):
         except Exception as e:
             return f"Error listing directory: {e!s}"
 
+
 class SearchFilesTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
-        query = args.get('query', '').strip()
+        query = args.get("query", "").strip()
         if not query:
             return "Error: Empty search query"
         results = []
@@ -154,46 +177,52 @@ class SearchFilesTool(BaseAgentTool):
                     if query_lower in rel_path.lower():
                         results.append(f"Match in filename: {rel_path}")
                     filepath = os.path.join(root, f)
-                    if os.path.getsize(filepath) > 500000: # Skip files larger than 500KB
+                    if os.path.getsize(filepath) > 500000:  # Skip files larger than 500KB
                         continue
                     try:
-                        with open(filepath, encoding='utf-8', errors='ignore') as file_obj:
+                        with open(filepath, encoding="utf-8", errors="ignore") as file_obj:
                             content = file_obj.read()
                             if query_lower in content.lower():
-                                lines = content.split('\n')
+                                lines = content.split("\n")
                                 for idx, line in enumerate(lines):
                                     if query_lower in line.lower():
-                                        results.append(f"{rel_path}:{idx+1}: {line.strip()[:120]}")
+                                        results.append(f"{rel_path}:{idx + 1}: {line.strip()[:120]}")
                     except Exception:
                         pass
             return "\n".join(results[:50]) if results else "No matches found"
         except Exception as e:
             return f"Error searching files: {e!s}"
 
+
 class RunCommandTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
-        command = args.get('command', '').strip()
+        command = args.get("command", "").strip()
         if not command:
             return "Error: Empty command"
         argv, error = _parse_allowed_command(command)
         if error:
             return error
         return _run_subprocess(
-            argv, project_path, config.TOOL_COMMAND_TIMEOUT,
+            argv,
+            project_path,
+            config.TOOL_COMMAND_TIMEOUT,
             f"Command timed out after {config.TOOL_COMMAND_TIMEOUT} seconds.",
             "executing command",
         )
+
 
 class FinishTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
         return "Agent finished tasks successfully!"
 
+
 class EditFileTool(BaseAgentTool):
     """Replace a specific string in a file with new content (targeted edit)."""
+
     def execute(self, args: dict, project_path: str) -> str:
-        path = args.get('path', '').strip()
-        search = args.get('search', '')
-        replace = args.get('replace', '')
+        path = args.get("path", "").strip()
+        search = args.get("search", "")
+        replace = args.get("replace", "")
         if not path:
             return "Error: Empty file path"
         if not search:
@@ -205,17 +234,21 @@ class EditFileTool(BaseAgentTool):
         if not os.path.exists(filepath):
             return f"Error: File not found: {path}"
         try:
-            with open(filepath, encoding='utf-8', errors='replace') as f:
+            with open(filepath, encoding="utf-8", errors="replace") as f:
                 content = f.read()
             if search not in content:
-                return (f"Error: Search string not found in {path}. "
-                        f"The content may have changed — try reading the file first.")
+                return (
+                    f"Error: Search string not found in {path}. "
+                    f"The content may have changed — try reading the file first."
+                )
             count = content.count(search)
             if count > 1:
-                return (f"Error: Search string found {count} times in {path}. "
-                        f"Provide a more unique search string (include surrounding lines).")
+                return (
+                    f"Error: Search string found {count} times in {path}. "
+                    f"Provide a more unique search string (include surrounding lines)."
+                )
             new_content = content.replace(search, replace, 1)
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(new_content)
             return f"Success: File edited successfully at {path}"
         except Exception as e:
@@ -224,16 +257,15 @@ class EditFileTool(BaseAgentTool):
 
 class GitDiffTool(BaseAgentTool):
     """Show git diff (unstaged changes) in the project."""
+
     def execute(self, args: dict, project_path: str) -> str:
-        file_path = args.get('path', '').strip()
+        file_path = args.get("path", "").strip()
         try:
-            cmd = ['git', 'diff']
+            cmd = ["git", "diff"]
             if file_path:
-                cmd.append('--')
+                cmd.append("--")
                 cmd.append(file_path)
-            res = subprocess.run(
-                cmd, cwd=project_path, capture_output=True, text=True, timeout=config.TOOL_GIT_TIMEOUT
-            )
+            res = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, timeout=config.TOOL_GIT_TIMEOUT)
             output = res.stdout.strip()
             if not output:
                 return "No unstaged changes found."
@@ -249,14 +281,18 @@ class GitDiffTool(BaseAgentTool):
 
 class GitLogTool(BaseAgentTool):
     """Show recent git commit log."""
+
     def execute(self, args: dict, project_path: str) -> str:
-        count = args.get('count', '10').strip()
+        count = args.get("count", "10").strip()
         try:
             n = int(count) if count.isdigit() else 10
             n = min(n, 50)
             res = subprocess.run(
-                ['git', 'log', f'-{n}', '--oneline', '--no-decorate'],
-                cwd=project_path, capture_output=True, text=True, timeout=config.TOOL_GIT_TIMEOUT
+                ["git", "log", f"-{n}", "--oneline", "--no-decorate"],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=config.TOOL_GIT_TIMEOUT,
             )
             output = res.stdout.strip()
             return output if output else "No commits found."
@@ -268,64 +304,69 @@ class GitLogTool(BaseAgentTool):
 
 class RunTestsTool(BaseAgentTool):
     """Auto-detect and run the project's test suite."""
+
     def execute(self, args: dict, project_path: str) -> str:
-        command = args.get('command', '').strip()
+        command = args.get("command", "").strip()
         if command:
             # User specified a custom test command
             return self._run_cmd(command, project_path)
 
         # Auto-detect test framework
         detectors = [
-            ('pytest.ini', 'pyproject.toml', 'setup.cfg', 'conftest.py'),
-            ('package.json',),
-            ('Makefile',),
-            ('Cargo.toml',),
-            ('go.mod',),
+            ("pytest.ini", "pyproject.toml", "setup.cfg", "conftest.py"),
+            ("package.json",),
+            ("Makefile",),
+            ("Cargo.toml",),
+            ("go.mod",),
         ]
-        py_files = [f for f in os.listdir(project_path) if f.startswith('test_') and f.endswith('.py')]
-        js_test_dirs = os.path.exists(os.path.join(project_path, 'jest.config.js')) or \
-                       os.path.exists(os.path.join(project_path, 'vitest.config.js'))
+        py_files = [f for f in os.listdir(project_path) if f.startswith("test_") and f.endswith(".py")]
+        js_test_dirs = os.path.exists(os.path.join(project_path, "jest.config.js")) or os.path.exists(
+            os.path.join(project_path, "vitest.config.js")
+        )
 
         # Python: pytest
         if any(os.path.exists(os.path.join(project_path, d)) for d in detectors[0]) or py_files:
-            return self._run_cmd('python -m pytest --tb=short -q', project_path)
+            return self._run_cmd("python -m pytest --tb=short -q", project_path)
 
         # Node.js
-        if os.path.exists(os.path.join(project_path, 'package.json')):
-            pkg_path = os.path.join(project_path, 'package.json')
+        if os.path.exists(os.path.join(project_path, "package.json")):
+            pkg_path = os.path.join(project_path, "package.json")
             try:
                 import json as _json
+
                 with open(pkg_path) as f:
                     pkg = _json.load(f)
-                scripts = pkg.get('scripts', {})
-                test_cmd = 'npm test' if 'test' in scripts else None
+                scripts = pkg.get("scripts", {})
+                test_cmd = "npm test" if "test" in scripts else None
                 if test_cmd:
                     return self._run_cmd(test_cmd, project_path)
             except Exception:
                 pass
             if js_test_dirs:
-                return self._run_cmd('npx jest --passWithNoTests', project_path)
+                return self._run_cmd("npx jest --passWithNoTests", project_path)
 
         # Rust
-        if os.path.exists(os.path.join(project_path, 'Cargo.toml')):
-            return self._run_cmd('cargo test --quiet', project_path)
+        if os.path.exists(os.path.join(project_path, "Cargo.toml")):
+            return self._run_cmd("cargo test --quiet", project_path)
 
         # Go
-        if os.path.exists(os.path.join(project_path, 'go.mod')):
-            return self._run_cmd('go test ./...', project_path)
+        if os.path.exists(os.path.join(project_path, "go.mod")):
+            return self._run_cmd("go test ./...", project_path)
 
         # Makefile
-        if os.path.exists(os.path.join(project_path, 'Makefile')):
+        if os.path.exists(os.path.join(project_path, "Makefile")):
             try:
-                with open(os.path.join(project_path, 'Makefile')) as f:
+                with open(os.path.join(project_path, "Makefile")) as f:
                     content = f.read()
-                if 'test:' in content:
-                    return self._run_cmd('make test', project_path)
+                if "test:" in content:
+                    return self._run_cmd("make test", project_path)
             except Exception:
                 pass
 
-        return ("Error: Could not auto-detect test framework. "
-                "Please specify a custom test command with [RUN_TESTS: your-command].")
+        return (
+            "Error: Could not auto-detect test framework. "
+            "Please specify a custom test command with [RUN_TESTS: your-command]."
+        )
 
     @staticmethod
     def _run_cmd(command, project_path):
@@ -333,7 +374,9 @@ class RunTestsTool(BaseAgentTool):
         if error:
             return error
         return _run_subprocess(
-            argv, project_path, config.TOOL_TEST_TIMEOUT,
+            argv,
+            project_path,
+            config.TOOL_TEST_TIMEOUT,
             f"Tests timed out after {config.TOOL_TEST_TIMEOUT} seconds.",
             "running tests",
         )
@@ -341,29 +384,35 @@ class RunTestsTool(BaseAgentTool):
 
 class LintCodeTool(BaseAgentTool):
     """Auto-detect and run linter on the project."""
+
     def execute(self, args: dict, project_path: str) -> str:
-        command = args.get('command', '').strip()
+        command = args.get("command", "").strip()
         if command:
             return self._run_lint_cmd(command, project_path)
 
         # Auto-detect linter
-        if os.path.exists(os.path.join(project_path, '.eslintrc.js')) or \
-           os.path.exists(os.path.join(project_path, '.eslintrc.json')) or \
-           os.path.exists(os.path.join(project_path, 'eslint.config.js')):
-            return self._run_lint_cmd('npx eslint --max-warnings 50 .', project_path)
+        if (
+            os.path.exists(os.path.join(project_path, ".eslintrc.js"))
+            or os.path.exists(os.path.join(project_path, ".eslintrc.json"))
+            or os.path.exists(os.path.join(project_path, "eslint.config.js"))
+        ):
+            return self._run_lint_cmd("npx eslint --max-warnings 50 .", project_path)
 
-        if os.path.exists(os.path.join(project_path, '.flake8')) or \
-           os.path.exists(os.path.join(project_path, 'setup.cfg')) or \
-           os.path.exists(os.path.join(project_path, 'pyproject.toml')):
-            return self._run_lint_cmd('python -m flake8 --max-line-length=120 --count', project_path)
+        if (
+            os.path.exists(os.path.join(project_path, ".flake8"))
+            or os.path.exists(os.path.join(project_path, "setup.cfg"))
+            or os.path.exists(os.path.join(project_path, "pyproject.toml"))
+        ):
+            return self._run_lint_cmd("python -m flake8 --max-line-length=120 --count", project_path)
 
         # Ruff (fast Python linter)
-        py_files = [f for f in os.listdir(project_path) if f.endswith('.py')]
+        py_files = [f for f in os.listdir(project_path) if f.endswith(".py")]
         if py_files:
-            return self._run_lint_cmd('python -m ruff check --output-format=text', project_path)
+            return self._run_lint_cmd("python -m ruff check --output-format=text", project_path)
 
-        return ("Error: Could not auto-detect linter. "
-                "Please specify a custom lint command with [LINT_CODE: your-command].")
+        return (
+            "Error: Could not auto-detect linter. Please specify a custom lint command with [LINT_CODE: your-command]."
+        )
 
     @staticmethod
     def _run_lint_cmd(command, project_path):
@@ -371,7 +420,9 @@ class LintCodeTool(BaseAgentTool):
         if error:
             return error
         return _run_subprocess(
-            argv, project_path, config.TOOL_LINT_TIMEOUT,
+            argv,
+            project_path,
+            config.TOOL_LINT_TIMEOUT,
             f"Linting timed out after {config.TOOL_LINT_TIMEOUT} seconds.",
             "running linter",
         )
@@ -379,9 +430,10 @@ class LintCodeTool(BaseAgentTool):
 
 class RegexSearchTool(BaseAgentTool):
     """Search files using regex patterns."""
+
     def execute(self, args: dict, project_path: str) -> str:
-        pattern = args.get('pattern', '').strip()
-        file_pattern = args.get('file_pattern', '').strip()
+        pattern = args.get("pattern", "").strip()
+        file_pattern = args.get("file_pattern", "").strip()
         if not pattern:
             return "Error: Empty regex pattern"
         try:
@@ -403,7 +455,7 @@ class RegexSearchTool(BaseAgentTool):
                     if os.path.getsize(filepath) > 500000:
                         continue
                     try:
-                        with open(filepath, encoding='utf-8', errors='ignore') as fh:
+                        with open(filepath, encoding="utf-8", errors="ignore") as fh:
                             for idx, line in enumerate(fh, 1):
                                 if compiled.search(line):
                                     results.append(f"{rel_path}:{idx}: {line.strip()[:120]}")
@@ -420,18 +472,18 @@ class RegexSearchTool(BaseAgentTool):
 
 class ToolRegistry:
     _tools: ClassVar[dict] = {
-        'READ_FILE': ReadFileTool(),
-        'WRITE_FILE': WriteFileTool(),
-        'EDIT_FILE': EditFileTool(),
-        'LIST_DIR': ListDirTool(),
-        'SEARCH_FILES': SearchFilesTool(),
-        'REGEX_SEARCH': RegexSearchTool(),
-        'RUN_COMMAND': RunCommandTool(),
-        'RUN_TESTS': RunTestsTool(),
-        'LINT_CODE': LintCodeTool(),
-        'GIT_DIFF': GitDiffTool(),
-        'GIT_LOG': GitLogTool(),
-        'FINISH': FinishTool()
+        "READ_FILE": ReadFileTool(),
+        "WRITE_FILE": WriteFileTool(),
+        "EDIT_FILE": EditFileTool(),
+        "LIST_DIR": ListDirTool(),
+        "SEARCH_FILES": SearchFilesTool(),
+        "REGEX_SEARCH": RegexSearchTool(),
+        "RUN_COMMAND": RunCommandTool(),
+        "RUN_TESTS": RunTestsTool(),
+        "LINT_CODE": LintCodeTool(),
+        "GIT_DIFF": GitDiffTool(),
+        "GIT_LOG": GitLogTool(),
+        "FINISH": FinishTool(),
     }
 
     @classmethod

@@ -45,6 +45,7 @@ class ChatSessionRepository:
         db.session.commit()
         return session
 
+
 class ProjectSessionRepository:
     @staticmethod
     def get_by_id(session_id):
@@ -56,14 +57,17 @@ class ProjectSessionRepository:
         db.session.commit()
         return session
 
+
 class ChatMessageRepository:
     @staticmethod
     def get_messages_by_session_id(session_id, limit=None):
         if limit:
-            messages = ChatMessage.query.filter_by(session_id=session_id)\
-                .order_by(ChatMessage.created_at.desc())\
-                .limit(limit)\
+            messages = (
+                ChatMessage.query.filter_by(session_id=session_id)
+                .order_by(ChatMessage.created_at.desc())
+                .limit(limit)
                 .all()
+            )
             messages.reverse()
             return messages
         return ChatMessage.query.filter_by(session_id=session_id).order_by(ChatMessage.created_at.asc()).all()
@@ -71,8 +75,11 @@ class ChatMessageRepository:
     @staticmethod
     def get_first_assistant_message(session_id):
         """Fetch only the first assistant message for a session (avoids loading all messages)."""
-        return ChatMessage.query.filter_by(session_id=session_id, role='assistant')\
-            .order_by(ChatMessage.created_at.asc()).first()
+        return (
+            ChatMessage.query.filter_by(session_id=session_id, role="assistant")
+            .order_by(ChatMessage.created_at.asc())
+            .first()
+        )
 
     @staticmethod
     def save(message):

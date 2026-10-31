@@ -11,12 +11,14 @@ from services.repositories import ChatMessageRepository
 def get_lang_instruction(language):
     return "Respond in English." if language == "en" else "Respond in Vietnamese."
 
+
 def format_sse_event(event_type, **kwargs):
-    payload = json.dumps({'type': event_type, **kwargs})
+    payload = json.dumps({"type": event_type, **kwargs})
     # Reduced padding from 1024 to 512 bytes — still sufficient to force
     # proxy/buffer flushes while halving per-event network overhead.
     padding = ":" + " " * 512 + "\n"
     return f"data: {payload}\n\n{padding}"
+
 
 def parse_ollama_sse_chunk(chunk):
     """Parse one raw SSE chunk emitted by ``call_ollama(stream=True)``.
@@ -35,6 +37,7 @@ def parse_ollama_sse_chunk(chunk):
     except (json.JSONDecodeError, TypeError):
         return None
 
+
 def _summarize_old_messages(messages):
     """Summarize older messages into a compact representation to save context window.
 
@@ -50,8 +53,8 @@ def _summarize_old_messages(messages):
     # Build a compact summary of older messages
     summary_parts = []
     for msg in older:
-        role = "User" if msg['role'] == 'user' else "Assistant"
-        content = msg['content']
+        role = "User" if msg["role"] == "user" else "Assistant"
+        content = msg["content"]
         # Truncate each old message to first 150 chars
         if len(content) > 150:
             content = content[:150] + "..."
@@ -100,6 +103,7 @@ def retrieve_chat_history(session_id, limit, skip_first=False):
 
     return messages
 
+
 def save_chat_message(session_id, role, content):
     """Helper to save a message in the database."""
     preview = content[:80].replace("\n", " ") if content else ""
@@ -107,6 +111,7 @@ def save_chat_message(session_id, role, content):
     result = ChatMessageRepository.save(msg)
     log.db_save("ChatMessage", session_id, extra=f"role={role} │ preview={preview}")
     return result
+
 
 def safe_join_project_path(base_path: str, relative_path: str) -> str:
     """Joins base_path and relative_path and verifies that the resulting path is inside base_path."""
@@ -121,5 +126,3 @@ def safe_join_project_path(base_path: str, relative_path: str) -> str:
         raise ValueError("Invalid path: Path traversal detected")
 
     return target_abs
-
-

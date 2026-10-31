@@ -31,6 +31,7 @@ chroma_client = None
 
 _fastembed_model = None
 
+
 def get_chroma_client():
     """Return the shared ChromaDB PersistentClient, creating it on first use."""
     global chroma_client
@@ -38,13 +39,16 @@ def get_chroma_client():
         chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
     return chroma_client
 
+
 def get_embedding_model():
     """Return the shared fastembed TextEmbedding model, loading it on first use."""
     global _fastembed_model
     if _fastembed_model is None:
         from fastembed import TextEmbedding
+
         _fastembed_model = TextEmbedding(model_name=config.FASTEMBED_MODEL)
     return _fastembed_model
+
 
 def get_ollama_embedding(text, model=None):
     """Generate embeddings for text using fastembed on CPU. Falls back to Ollama if fastembed fails."""
@@ -60,16 +64,13 @@ def get_ollama_embedding(text, model=None):
     url = f"{config.OLLAMA_URL.rstrip('/')}/embeddings"
 
     try:
-        response = rag_session.post(
-            url,
-            json={"model": model, "prompt": text, "keep_alive": "15m"},
-            timeout=30
-        )
+        response = rag_session.post(url, json={"model": model, "prompt": text, "keep_alive": "15m"}, timeout=30)
         response.raise_for_status()
         return response.json().get("embedding")
     except Exception as e:
         logger.error(f"Error generating embedding in fallback Ollama: {e}")
         return None
+
 
 def get_ollama_embeddings_batch(texts, model=None):
     """Generate embeddings for a list of texts using fastembed batching. Falls back to Ollama API.
@@ -89,11 +90,7 @@ def get_ollama_embeddings_batch(texts, model=None):
     url = f"{config.OLLAMA_URL.rstrip('/')}/embed"
 
     try:
-        response = rag_session.post(
-            url,
-            json={"model": model, "input": texts, "keep_alive": "15m"},
-            timeout=60
-        )
+        response = rag_session.post(url, json={"model": model, "input": texts, "keep_alive": "15m"}, timeout=60)
         response.raise_for_status()
         return response.json().get("embeddings", [])
     except Exception as e:
@@ -103,6 +100,7 @@ def get_ollama_embeddings_batch(texts, model=None):
             vector = get_ollama_embedding(t, model)
             embeddings.append(vector)
         return embeddings
+
 
 def _code_aware_split(text, chunk_size=None, chunk_overlap=None):
     """Split text using code-aware boundaries when possible.
@@ -116,33 +114,42 @@ def _code_aware_split(text, chunk_size=None, chunk_overlap=None):
         chunk_overlap = config.RAG_CHUNK_OVERLAP
 
     # Detect if this is primarily code content
-    code_indicators = ['def ', 'class ', 'function ', 'import ', 'from ',
-                       'const ', 'let ', 'var ', 'export ', 'async ',
-                       'public ', 'private ', 'protected ', 'interface ']
-    code_lines = sum(1 for line in text.split('\n')
-                     if any(ind in line for ind in code_indicators))
-    total_lines = len(text.split('\n'))
+    code_indicators = [
+        "def ",
+        "class ",
+        "function ",
+        "import ",
+        "from ",
+        "const ",
+        "let ",
+        "var ",
+        "export ",
+        "async ",
+        "public ",
+        "private ",
+        "protected ",
+        "interface ",
+    ]
+    code_lines = sum(1 for line in text.split("\n") if any(ind in line for ind in code_indicators))
+    total_lines = len(text.split("\n"))
     is_code = total_lines > 0 and (code_lines / total_lines) > 0.15
 
     if not is_code or total_lines < 20:
         # For non-code or very short text, use standard splitting
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         return text_splitter.split_text(text)
 
     # Code-aware splitting: break at function/class boundaries
     boundaries = []
     boundary_patterns = [
-        r'^(?:def |class |async def )',              # Python
-        r'^(?:function |class |export (?:default )?(?:function|class))',  # JS/TS
-        r'^(?:func |type |interface |struct )',        # Go
-        r'^(?:pub (?:fn|struct|enum|impl|trait) )',   # Rust
-        r'^(?:@Component|@Injectable|@NgModule)',       # Angular
+        r"^(?:def |class |async def )",  # Python
+        r"^(?:function |class |export (?:default )?(?:function|class))",  # JS/TS
+        r"^(?:func |type |interface |struct )",  # Go
+        r"^(?:pub (?:fn|struct|enum|impl|trait) )",  # Rust
+        r"^(?:@Component|@Injectable|@NgModule)",  # Angular
     ]
 
-    lines = text.split('\n')
+    lines = text.split("\n")
     for i, line in enumerate(lines):
         for pattern in boundary_patterns:
             if re.match(pattern, line.strip()):
@@ -151,10 +158,7 @@ def _code_aware_split(text, chunk_size=None, chunk_overlap=None):
 
     # If no boundaries found, fall back to standard splitting
     if len(boundaries) < 2:
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         return text_splitter.split_text(text)
 
     # Split at boundaries, respecting chunk_size
@@ -162,21 +166,18 @@ def _code_aware_split(text, chunk_size=None, chunk_overlap=None):
     for i in range(len(boundaries)):
         start = boundaries[i]
         end = boundaries[i + 1] if i + 1 < len(boundaries) else len(lines)
-        block = '\n'.join(lines[start:end])
+        block = "\n".join(lines[start:end])
 
         # If block exceeds chunk_size, sub-split it
         if len(block) > chunk_size:
-            sub_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap
-            )
+            sub_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
             chunks.extend(sub_splitter.split_text(block))
         elif block.strip():
             chunks.append(block)
 
     # If gaps exist between boundaries, also capture those
     if boundaries[0] > 0:
-        preamble = '\n'.join(lines[:boundaries[0]]).strip()
+        preamble = "\n".join(lines[: boundaries[0]]).strip()
         if preamble:
             chunks.insert(0, preamble)
 
@@ -205,7 +206,7 @@ def index_document(session_id, text):
 
     batch_size = 32
     for i in range(0, len(chunks), batch_size):
-        batch_chunks = chunks[i:i+batch_size]
+        batch_chunks = chunks[i : i + batch_size]
         batch_vectors = get_ollama_embeddings_batch(batch_chunks)
 
         # Align chunks and vectors properly
@@ -216,12 +217,9 @@ def index_document(session_id, text):
                 ids.append(f"chunk_{i + idx}")
 
     if ids:
-        collection.add(
-            documents=documents,
-            embeddings=embeddings,
-            ids=ids
-        )
+        collection.add(documents=documents, embeddings=embeddings, ids=ids)
     return len(ids)
+
 
 def _keyword_search(texts, query, top_k=5):
     """Simple BM25-inspired keyword scoring for a list of text chunks.
@@ -230,14 +228,14 @@ def _keyword_search(texts, query, top_k=5):
         return [], []
 
     # Tokenize query
-    query_tokens = re.findall(r'\w+', query.lower())
+    query_tokens = re.findall(r"\w+", query.lower())
     if not query_tokens:
         return [], []
 
     scores = []
     for text in texts:
         text_lower = text.lower()
-        text_tokens = set(re.findall(r'\w+', text_lower))
+        text_tokens = set(re.findall(r"\w+", text_lower))
         text_len = max(len(text_tokens), 1)
 
         score = 0.0
@@ -283,12 +281,9 @@ def retrieve_context(session_id, query, top_k=None):
         vector_results = {}
         if query_vector:
             try:
-                results = collection.query(
-                    query_embeddings=[query_vector],
-                    n_results=vector_candidates
-                )
-                docs = results.get('documents', [[]])[0]
-                distances = results.get('distances', [[]])[0]
+                results = collection.query(query_embeddings=[query_vector], n_results=vector_candidates)
+                docs = results.get("documents", [[]])[0]
+                distances = results.get("distances", [[]])[0]
                 for doc, dist in zip(docs, distances, strict=False):
                     vector_results[doc] = 1.0 / (1.0 + dist)  # Convert distance to similarity score
             except Exception as e:
@@ -298,7 +293,7 @@ def retrieve_context(session_id, query, top_k=None):
         all_docs = []
         try:
             all_results = collection.get(include=["documents"])
-            all_docs = all_results.get('documents', [])
+            all_docs = all_results.get("documents", [])
         except Exception as e:
             logger.error(f"Error getting all docs for keyword search: {e}")
 
@@ -326,4 +321,3 @@ def retrieve_context(session_id, query, top_k=None):
     except Exception as e:
         logger.error(f"Error retrieving context for session {session_id}: {e}")
         return ""
-

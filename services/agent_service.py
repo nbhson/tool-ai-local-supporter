@@ -23,14 +23,15 @@ logger = logging.getLogger(__name__)
 # Regex matching the start of any tool call tag (used to delimit WRITE_FILE /
 # EDIT_FILE payloads embedded in the assistant response).
 _TOOL_TAG_PATTERN = re.compile(
-    r'\[(?:READ_FILE|WRITE_FILE|LIST_DIR|SEARCH_FILES|RUN_COMMAND|EDIT_FILE|'
-    r'GIT_DIFF|GIT_LOG|RUN_TESTS|LINT_CODE|REGEX_SEARCH|FINISH):'
+    r"\[(?:READ_FILE|WRITE_FILE|LIST_DIR|SEARCH_FILES|RUN_COMMAND|EDIT_FILE|"
+    r"GIT_DIFF|GIT_LOG|RUN_TESTS|LINT_CODE|REGEX_SEARCH|FINISH):"
 )
 
 # In-memory cache for project tree with TTL (prevents unbounded memory growth)
 # Format: session_id -> {"tree": tree, "stats": stats, "timestamp": float}
 _project_tree_cache = {}
 _PROJECT_TREE_CACHE_TTL = 300  # 5 minutes
+
 
 def get_cached_project_tree(session_id):
     """Retrieve the cached project tree and stats for a session (with TTL expiry)."""
@@ -42,25 +43,20 @@ def get_cached_project_tree(session_id):
         del _project_tree_cache[session_id]
     return None, None
 
+
 def set_cached_project_tree(session_id, tree, stats):
     """Cache the project tree and stats for a session."""
-    _project_tree_cache[session_id] = {
-        "tree": tree,
-        "stats": stats,
-        "timestamp": time.time()
-    }
+    _project_tree_cache[session_id] = {"tree": tree, "stats": stats, "timestamp": time.time()}
+
 
 def invalidate_project_tree_cache(session_id):
     """Invalidate/delete the cached project tree for a session."""
     _project_tree_cache.pop(session_id, None)
 
+
 def scan_directory_and_stats(current_path, base_path, stats=None, current_depth=0, max_depth=None):
     if stats is None:
-        stats = {
-            "total_files": 0,
-            "total_size": 0,
-            "lang_stats": {}
-        }
+        stats = {"total_files": 0, "total_size": 0, "lang_stats": {}}
     tree = []
     if max_depth is not None and current_depth > max_depth:
         return tree, stats
@@ -71,31 +67,29 @@ def scan_directory_and_stats(current_path, base_path, stats=None, current_depth=
                 if entry.name in config.EXCLUDE_DIRS:
                     continue
                 subtree, _ = scan_directory_and_stats(entry.path, base_path, stats, current_depth + 1, max_depth)
-                tree.append({
-                    "name": entry.name,
-                    "path": os.path.relpath(entry.path, base_path),
-                    "is_dir": True,
-                    "children": subtree
-                })
+                tree.append(
+                    {
+                        "name": entry.name,
+                        "path": os.path.relpath(entry.path, base_path),
+                        "is_dir": True,
+                        "children": subtree,
+                    }
+                )
             else:
                 if entry.name in config.EXCLUDE_FILES:
                     continue
                 rel_path = os.path.relpath(entry.path, base_path)
-                tree.append({
-                    "name": entry.name,
-                    "path": rel_path,
-                    "is_dir": False
-                })
+                tree.append({"name": entry.name, "path": rel_path, "is_dir": False})
                 try:
                     size = entry.stat().st_size
                     stats["total_size"] += size
                     stats["total_files"] += 1
 
                     _, ext = os.path.splitext(entry.name)
-                    ext = ext.lower().strip('.')
+                    ext = ext.lower().strip(".")
                     if not ext:
-                        known_no_ext = entry.name.startswith('.') or entry.name in ('LICENSE', 'Makefile', 'Dockerfile')
-                        ext = 'plain text' if known_no_ext else 'unknown'
+                        known_no_ext = entry.name.startswith(".") or entry.name in ("LICENSE", "Makefile", "Dockerfile")
+                        ext = "plain text" if known_no_ext else "unknown"
                     stats["lang_stats"][ext] = stats["lang_stats"].get(ext, 0) + 1
                 except Exception:
                     pass
@@ -103,21 +97,39 @@ def scan_directory_and_stats(current_path, base_path, stats=None, current_depth=
         logger.error(f"Error scanning directory {current_path}: {e}")
     return tree, stats
 
+
 def _compute_file_importance(node, base_importance=0):
     """Compute an importance score for a file node based on heuristics."""
-    name = node.get('name', '').lower()
+    name = node.get("name", "").lower()
     score = base_importance
     # Config / entry files are important
-    if name in ('package.json', 'requirements.txt', 'pyproject.toml', 'setup.py', 'setup.cfg',
-                'go.mod', 'cargo.toml', 'dockerfile', 'docker-compose.yml', 'docker-compose.yaml',
-                'readme.md', 'makefile', '.env.example', 'tsconfig.json', 'webpack.config.js',
-                'vite.config.js', 'vite.config.ts', 'next.config.js', 'next.config.ts'):
+    if name in (
+        "package.json",
+        "requirements.txt",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "go.mod",
+        "cargo.toml",
+        "dockerfile",
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "readme.md",
+        "makefile",
+        ".env.example",
+        "tsconfig.json",
+        "webpack.config.js",
+        "vite.config.js",
+        "vite.config.ts",
+        "next.config.js",
+        "next.config.ts",
+    ):
         score += 3
     # Source files
-    if any(name.endswith(ext) for ext in ('.py', '.js', '.ts', '.tsx', '.jsx', '.go', '.rs', '.java', '.rb', '.php')):
+    if any(name.endswith(ext) for ext in (".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".rb", ".php")):
         score += 2
     # Test files (lower priority in overview)
-    if name.startswith('test_') or name.endswith(('_test.py', '.test.js', '.test.ts')):
+    if name.startswith("test_") or name.endswith(("_test.py", ".test.js", ".test.ts")):
         score -= 1
     return score
 
@@ -131,7 +143,7 @@ def get_simple_tree_str(nodes, depth=0, max_depth=None, max_entries_per_dir=None
         return []
 
     # Sort: directories first, then by importance score (descending)
-    sorted_nodes = sorted(nodes, key=lambda n: (not n.get('is_dir', False), -_compute_file_importance(n)))
+    sorted_nodes = sorted(nodes, key=lambda n: (not n.get("is_dir", False), -_compute_file_importance(n)))
 
     lines = []
     for i, node in enumerate(sorted_nodes):
@@ -148,6 +160,7 @@ def get_simple_tree_str(nodes, depth=0, max_depth=None, max_entries_per_dir=None
             lines.append(f"{indent}📄 {node['name']}")
     return lines
 
+
 def _next_tool_tag(text, start_pos):
     """Find the next tool call tag in `text` at or after `start_pos`.
 
@@ -158,12 +171,14 @@ def _next_tool_tag(text, start_pos):
         return match.start(), match.end()
     return None, None
 
+
 def _segment_after_match(text, match):
     """Extract the text segment following a tool tag match up to the next tool tag."""
     start_pos = match.end()
     next_start, _ = _next_tool_tag(text, start_pos)
     end_pos = next_start if next_start is not None else len(text)
     return text[start_pos:end_pos]
+
 
 def parse_all_tool_calls(text):
     """
@@ -173,74 +188,77 @@ def parse_all_tool_calls(text):
     tool_calls = []
 
     # Parse [FINISH] if present (should not short-circuit other tool calls)
-    if '[FINISH]' in text:
-        tool_calls.append({'tool': 'FINISH', 'args': {}})
+    if "[FINISH]" in text:
+        tool_calls.append({"tool": "FINISH", "args": {}})
 
     # Match simple tool tags: [TOOL: value]
-    simple_pattern = r'\[(READ_FILE|LIST_DIR|SEARCH_FILES|RUN_COMMAND|GIT_DIFF|GIT_LOG|LINT_CODE):\s*([^\]\n]+)\]'
+    simple_pattern = r"\[(READ_FILE|LIST_DIR|SEARCH_FILES|RUN_COMMAND|GIT_DIFF|GIT_LOG|LINT_CODE):\s*([^\]\n]+)\]"
     simple_matches = list(re.finditer(simple_pattern, text))
 
     _SIMPLE_TOOL_ARGS = {
-        'READ_FILE': 'path',
-        'LIST_DIR': 'path',
-        'SEARCH_FILES': 'query',
-        'RUN_COMMAND': 'command',
-        'GIT_DIFF': 'path',
-        'GIT_LOG': 'count',
-        'LINT_CODE': 'command',
+        "READ_FILE": "path",
+        "LIST_DIR": "path",
+        "SEARCH_FILES": "query",
+        "RUN_COMMAND": "command",
+        "GIT_DIFF": "path",
+        "GIT_LOG": "count",
+        "LINT_CODE": "command",
     }
     for match in simple_matches:
         tool_name = match.group(1)
         arg_val = match.group(2).strip()
         arg_key = _SIMPLE_TOOL_ARGS[tool_name]
-        tool_calls.append({'tool': tool_name, 'args': {arg_key: arg_val}})
+        tool_calls.append({"tool": tool_name, "args": {arg_key: arg_val}})
 
     # Match [RUN_TESTS: command] (optional command)
-    rt_pattern = r'\[RUN_TESTS:\s*([^\]\n]*)\]'
+    rt_pattern = r"\[RUN_TESTS:\s*([^\]\n]*)\]"
     for match in re.finditer(rt_pattern, text):
         cmd = match.group(1).strip()
-        tool_calls.append({'tool': 'RUN_TESTS', 'args': {'command': cmd}})
+        tool_calls.append({"tool": "RUN_TESTS", "args": {"command": cmd}})
 
     # Match [REGEX_SEARCH: pattern] or [REGEX_SEARCH: pattern | file_pattern]
-    rs_pattern = r'\[REGEX_SEARCH:\s*([^\]\n]+)\]'
+    rs_pattern = r"\[REGEX_SEARCH:\s*([^\]\n]+)\]"
     for match in re.finditer(rs_pattern, text):
         val = match.group(1).strip()
-        parts = [p.strip() for p in val.split('|', 1)]
-        args = {'pattern': parts[0]}
+        parts = [p.strip() for p in val.split("|", 1)]
+        args = {"pattern": parts[0]}
         if len(parts) > 1:
-            args['file_pattern'] = parts[1]
-        tool_calls.append({'tool': 'REGEX_SEARCH', 'args': args})
+            args["file_pattern"] = parts[1]
+        tool_calls.append({"tool": "REGEX_SEARCH", "args": args})
 
     # Match [EDIT_FILE: path]
     # Requires: search string in <<<>>> delimiters, replace in <<<>>> delimiters
-    ef_pattern = r'\[EDIT_FILE:\s*([^\]\n]+)\]'
+    ef_pattern = r"\[EDIT_FILE:\s*([^\]\n]+)\]"
     for match in re.finditer(ef_pattern, text):
         file_path = match.group(1).strip()
         segment = _segment_after_match(text, match)
 
-        search_match = re.search(r'<<<SEARCH>>>([\s\S]*?)<<<END_SEARCH>>>', segment)
-        replace_match = re.search(r'<<<REPLACE>>>([\s\S]*?)<<<END_REPLACE>>>', segment)
+        search_match = re.search(r"<<<SEARCH>>>([\s\S]*?)<<<END_SEARCH>>>", segment)
+        replace_match = re.search(r"<<<REPLACE>>>([\s\S]*?)<<<END_REPLACE>>>", segment)
 
-        search_str = search_match.group(1).strip() if search_match else ''
-        replace_str = replace_match.group(1).strip() if replace_match else ''
+        search_str = search_match.group(1).strip() if search_match else ""
+        replace_str = replace_match.group(1).strip() if replace_match else ""
 
-        tool_calls.append({
-            'tool': 'EDIT_FILE',
-            'args': {'path': file_path, 'search': search_str, 'replace': replace_str},
-        })
+        tool_calls.append(
+            {
+                "tool": "EDIT_FILE",
+                "args": {"path": file_path, "search": search_str, "replace": replace_str},
+            }
+        )
 
     # Match [WRITE_FILE: path]
-    wf_pattern = r'\[(WRITE_FILE):\s*([^\]\n]+)\]'
+    wf_pattern = r"\[(WRITE_FILE):\s*([^\]\n]+)\]"
     for match in re.finditer(wf_pattern, text):
         file_path = match.group(2).strip()
         segment = _segment_after_match(text, match)
 
         # Extract code block if present
-        code_block = re.search(r'```(?:\w*)\n([\s\S]*?)```', segment)
+        code_block = re.search(r"```(?:\w*)\n([\s\S]*?)```", segment)
         content = code_block.group(1) if code_block else segment.strip()
-        tool_calls.append({'tool': 'WRITE_FILE', 'args': {'path': file_path, 'content': content}})
+        tool_calls.append({"tool": "WRITE_FILE", "args": {"path": file_path, "content": content}})
 
     return tool_calls
+
 
 def parse_tool_call(text):
     """Legacy parser for compatibility with tests."""
@@ -251,32 +269,36 @@ def parse_tool_call(text):
 def execute_agent_tool(tool_name, args, project_path):
     return ToolRegistry.execute_tool(tool_name, args, project_path)
 
+
 def _finish_status(language):
     """Localized status message shown when the agent loop completes."""
-    return 'Agent finished tasks successfully!' if language == 'en' \
-        else 'Agent hoàn thành công việc thành công!'
+    return "Agent finished tasks successfully!" if language == "en" else "Agent hoàn thành công việc thành công!"
+
 
 _TOOL_STATUS_LABELS = {
-    'READ_FILE': ('Reading file: {detail}...', 'Đang đọc file: {detail}...'),
-    'WRITE_FILE': ('Writing file: {detail}...', 'Đang ghi file: {detail}...'),
-    'RUN_COMMAND': ('Running command: {detail}...', 'Đang chạy lệnh: {detail}...'),
+    "READ_FILE": ("Reading file: {detail}...", "Đang đọc file: {detail}..."),
+    "WRITE_FILE": ("Writing file: {detail}...", "Đang ghi file: {detail}..."),
+    "RUN_COMMAND": ("Running command: {detail}...", "Đang chạy lệnh: {detail}..."),
 }
 _TOOL_STATUS_ARG_KEYS = {
-    'READ_FILE': 'path',
-    'WRITE_FILE': 'path',
-    'RUN_COMMAND': 'command',
+    "READ_FILE": "path",
+    "WRITE_FILE": "path",
+    "RUN_COMMAND": "command",
 }
+
 
 def _tool_running_status(tool_name, tool_args, language):
     """Localized status message shown while a tool is executing."""
     if tool_name in _TOOL_STATUS_LABELS:
         detail = tool_args.get(_TOOL_STATUS_ARG_KEYS[tool_name])
-        template = _TOOL_STATUS_LABELS[tool_name][0 if language == 'en' else 1]
+        template = _TOOL_STATUS_LABELS[tool_name][0 if language == "en" else 1]
         return template.format(detail=detail)
-    return f"Running tool {tool_name}..." if language == 'en' else f"Đang chạy tool {tool_name}..."
+    return f"Running tool {tool_name}..." if language == "en" else f"Đang chạy tool {tool_name}..."
 
-def generate_agent_stream(session_id, project_path, question, language, model, context_str, tree_str, agent_mode,
-                          app=None):
+
+def generate_agent_stream(
+    session_id, project_path, question, language, model, context_str, tree_str, agent_mode, app=None
+):
     """Executes the main ReAct software development agent loop, yielding SSE events.
 
     Args:
@@ -434,7 +456,7 @@ For simple greetings or casual chat, SKIP the thought process and reply immediat
         messages.extend(history)
 
         # Save user message to history
-        save_chat_message(session_id, 'user', question)
+        save_chat_message(session_id, "user", question)
         log.info("User question saved", question_preview=question[:120])
 
         # Append current user question
@@ -448,9 +470,12 @@ For simple greetings or casual chat, SKIP the thought process and reply immediat
             log.agent_iteration(session_id, iteration, max_iterations)
 
             # Send iteration status
-            thinking = f"AI is thinking (Loop {iteration+1}/10)..." if language == 'en' \
-                else f"AI đang suy nghĩ (Vòng lặp {iteration+1}/10)..."
-            yield format_sse_event('agent_status', status=thinking)
+            thinking = (
+                f"AI is thinking (Loop {iteration + 1}/10)..."
+                if language == "en"
+                else f"AI đang suy nghĩ (Vòng lặp {iteration + 1}/10)..."
+            )
+            yield format_sse_event("agent_status", status=thinking)
             time.sleep(0.1)
 
             # Call Ollama
@@ -466,11 +491,11 @@ For simple greetings or casual chat, SKIP the thought process and reply immediat
                 if "content" in payload:
                     content = payload["content"]
                     current_answer += content
-                    yield format_sse_event('content', content=content)
+                    yield format_sse_event("content", content=content)
                 elif "error" in payload:
                     error_msg = payload["error"]
                     log.error("Ollama returned error in stream", error=error_msg)
-                    yield format_sse_event('content', content=f"❌ **Error:** {error_msg}")
+                    yield format_sse_event("content", content=f"❌ **Error:** {error_msg}")
 
             ollama_ms = (time.time() - ollama_start) * 1000
             log.agent_ollama_response(session_id, iteration, len(current_answer))
@@ -481,39 +506,39 @@ For simple greetings or casual chat, SKIP the thought process and reply immediat
 
             # Parse tool calls
             tool_calls = parse_all_tool_calls(current_answer)
-            tool_names = [tc['tool'] for tc in tool_calls]
+            tool_names = [tc["tool"] for tc in tool_calls]
             log.agent_parse_tools(session_id, iteration, len(tool_calls), tool_names)
 
             if not tool_calls:
                 log.info("No tool calls → finishing loop")
-                done_status = 'Finished (No tool call)' if language == 'en' else 'Hoàn thành (Không có tool call)'
-                yield format_sse_event('agent_status', status=done_status)
+                done_status = "Finished (No tool call)" if language == "en" else "Hoàn thành (Không có tool call)"
+                yield format_sse_event("agent_status", status=done_status)
                 break
 
             # Check for FINISH (may appear alongside other tool calls)
-            has_finish = any(tc['tool'] == 'FINISH' for tc in tool_calls)
+            has_finish = any(tc["tool"] == "FINISH" for tc in tool_calls)
 
             # Filter out FINISH so we execute all real tools first
-            actionable_calls = [tc for tc in tool_calls if tc['tool'] != 'FINISH']
+            actionable_calls = [tc for tc in tool_calls if tc["tool"] != "FINISH"]
 
             if not actionable_calls:
                 # Only FINISH (or empty) — nothing to execute
                 log.success("FINISH detected → exiting agent loop")
-                yield format_sse_event('agent_status', status=_finish_status(language))
+                yield format_sse_event("agent_status", status=_finish_status(language))
                 break
 
             results_contents = []
             for idx, tool_call in enumerate(actionable_calls):
-                tool_name = tool_call['tool']
-                tool_args = tool_call['args']
+                tool_name = tool_call["tool"]
+                tool_args = tool_call["args"]
                 call_id = f"call_{iteration}_{idx}"
 
                 # Log and yield tool call event
                 log.tool_call(tool_name, tool_args, call_id=call_id)
-                yield format_sse_event('tool_call', tool=tool_name, args=tool_args, call_id=call_id)
+                yield format_sse_event("tool_call", tool=tool_name, args=tool_args, call_id=call_id)
 
                 tool_status = _tool_running_status(tool_name, tool_args, language)
-                yield format_sse_event('agent_status', status=tool_status)
+                yield format_sse_event("agent_status", status=tool_status)
                 time.sleep(0.05)
 
                 # Execute tool with timing
@@ -523,7 +548,7 @@ For simple greetings or casual chat, SKIP the thought process and reply immediat
 
                 log.tool_result(tool_name, tool_result, call_id=call_id, duration_ms=tool_ms)
 
-                if tool_name == 'WRITE_FILE':
+                if tool_name == "WRITE_FILE":
                     invalidate_project_tree_cache(session_id)
                     log.info("Project tree cache invalidated (file was written)")
 
@@ -532,11 +557,11 @@ For simple greetings or casual chat, SKIP the thought process and reply immediat
                 if len(display_result) > 5000:
                     display_result = display_result[:5000] + "\n...[output truncated due to length]"
                 yield format_sse_event(
-                    'tool_result', tool=tool_name, args=tool_args, result=display_result, call_id=call_id
+                    "tool_result", tool=tool_name, args=tool_args, result=display_result, call_id=call_id
                 )
 
-                post_status = f"Finished tool {tool_name}." if language == 'en' else f"Đã chạy xong tool {tool_name}."
-                yield format_sse_event('agent_status', status=post_status)
+                post_status = f"Finished tool {tool_name}." if language == "en" else f"Đã chạy xong tool {tool_name}."
+                yield format_sse_event("agent_status", status=post_status)
                 time.sleep(0.05)
 
                 # Format output for model prompt
@@ -551,17 +576,20 @@ For simple greetings or casual chat, SKIP the thought process and reply immediat
             combined_results = "\n\n---\n\n".join(results_contents)
             log.info(
                 "Combining tool results for next iteration",
-                tools_count=len(actionable_calls), results_size=len(combined_results),
+                tools_count=len(actionable_calls),
+                results_size=len(combined_results),
             )
-            messages.append({
-                "role": "user",
-                "content": f"Tool execution results:\n\n{combined_results}\n\nPlease proceed to the next step."
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Tool execution results:\n\n{combined_results}\n\nPlease proceed to the next step.",
+                }
+            )
 
             # If FINISH was present alongside other tools, exit after executing them
             if has_finish:
                 log.success("FINISH detected → exiting agent loop (after executing tools)")
-                yield format_sse_event('agent_status', status=_finish_status(language))
+                yield format_sse_event("agent_status", status=_finish_status(language))
                 break
 
         # Save final response summary to SQLite
@@ -570,7 +598,7 @@ For simple greetings or casual chat, SKIP the thought process and reply immediat
             if msg["role"] == "assistant":
                 final_summary += msg["content"] + "\n\n"
 
-        save_chat_message(session_id, 'assistant', final_summary.strip())
+        save_chat_message(session_id, "assistant", final_summary.strip())
         log.agent_finish(session_id, max_iterations)
         log.info("Final response saved to DB", summary_length=len(final_summary.strip()))
 

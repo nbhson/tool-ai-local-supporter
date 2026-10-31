@@ -21,19 +21,18 @@ from services.logger import log
 from services.models import ProjectSession
 from services.repositories import ProjectSessionRepository
 
-project_bp = Blueprint('project', __name__)
+project_bp = Blueprint("project", __name__)
 
 EXCLUDE_DIRS = config.EXCLUDE_DIRS
 EXCLUDE_FILES = config.EXCLUDE_FILES
 
 
-
-@project_bp.route('/init', methods=['POST'])
+@project_bp.route("/init", methods=["POST"])
 def init_project():
     data = request.json or {}
-    local_path = data.get('path', '').strip()
-    model = data.get('model', config.DEFAULT_MODEL)
-    ui_language = data.get('language', 'en')
+    local_path = data.get("path", "").strip()
+    model = data.get("model", config.DEFAULT_MODEL)
+    ui_language = data.get("language", "en")
 
     log.route_request("POST", "/project/init", path=local_path or "(upload)", model=model)
 
@@ -43,27 +42,24 @@ def init_project():
         # Browser upload flow initialization
         log.info("Upload flow initialization")
         session = ProjectSession(
-            session_id=session_id,
-            is_local=False,
-            status='init',
-            model=model,
-            ui_language=ui_language
+            session_id=session_id, is_local=False, status="init", model=model, ui_language=ui_language
         )
         ProjectSessionRepository.save(session)
         log.session_init(session_id, kind="project-upload")
-        return jsonify({
-            "session_id": session_id,
-            "is_local": False
-        })
+        return jsonify({"session_id": session_id, "is_local": False})
 
     # Local path flow
     if not os.path.exists(local_path):
-        error_msg = (f"Thư mục không tồn tại: {local_path}" if ui_language == 'vi'
-                     else f"Directory does not exist: {local_path}")
+        error_msg = (
+            f"Thư mục không tồn tại: {local_path}" if ui_language == "vi" else f"Directory does not exist: {local_path}"
+        )
         raise InvalidRequestError(error_msg)
     if not os.path.isdir(local_path):
-        error_msg = (f"Đường dẫn không phải là thư mục: {local_path}" if ui_language == 'vi'
-                     else f"Path is not a directory: {local_path}")
+        error_msg = (
+            f"Đường dẫn không phải là thư mục: {local_path}"
+            if ui_language == "vi"
+            else f"Path is not a directory: {local_path}"
+        )
         raise InvalidRequestError(error_msg)
 
     try:
@@ -74,25 +70,20 @@ def init_project():
             session_id=session_id,
             project_path=local_path,
             is_local=True,
-            status='ready',
+            status="ready",
             model=model,
-            ui_language=ui_language
+            ui_language=ui_language,
         )
         ProjectSessionRepository.save(session)
         log.session_init(session_id, kind="project-local")
 
-        return jsonify({
-            "session_id": session_id,
-            "is_local": True,
-            "tree": tree,
-            "stats": stats
-        })
+        return jsonify({"session_id": session_id, "is_local": True, "tree": tree, "stats": stats})
     except Exception as e:
         log.error(f"Project init failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 
-@project_bp.route('/<session_id>/upload', methods=['POST'])
+@project_bp.route("/<session_id>/upload", methods=["POST"])
 def upload_project_files(session_id):
     log.route_request("POST", f"/project/{session_id[:12]}/upload")
 
@@ -100,14 +91,14 @@ def upload_project_files(session_id):
     if not session:
         raise SessionNotFoundError()
 
-    files = request.files.getlist('files[]')
-    paths = request.form.getlist('paths[]')
+    files = request.files.getlist("files[]")
+    paths = request.form.getlist("paths[]")
 
     if not files:
         return jsonify({"error": "No files uploaded"}), 400
 
     log.info("Upload received", file_count=len(files))
-    project_dir = os.path.join(config.UPLOAD_FOLDER, 'projects', session_id)
+    project_dir = os.path.join(config.UPLOAD_FOLDER, "projects", session_id)
     os.makedirs(project_dir, exist_ok=True)
 
     try:
@@ -116,8 +107,8 @@ def upload_project_files(session_id):
         pending = []  # (file, dest_filepath)
         for idx, file in enumerate(files):
             # webkitRelativePath format is "root-folder-name/sub-folder/file.txt"
-            path = (paths[idx] if idx < len(paths) else '').replace('\\', '/').strip()
-            parts = path.split('/')
+            path = (paths[idx] if idx < len(paths) else "").replace("\\", "/").strip()
+            parts = path.split("/")
             if len(parts) > 1:
                 # Strip the root folder name from relative path to keep structure cleaner
                 rel_path = os.path.join(*parts[1:])
@@ -125,7 +116,7 @@ def upload_project_files(session_id):
                 rel_path = path
             else:
                 # No path info — use the original filename (sanitized)
-                rel_path = secure_filename(file.filename) if file.filename else ''
+                rel_path = secure_filename(file.filename) if file.filename else ""
             if not rel_path:
                 return jsonify({"error": "Missing path for an uploaded file"}), 400
 
@@ -149,30 +140,27 @@ def upload_project_files(session_id):
 
         log.info("All files saved", uploaded_count=uploaded_count)
         session.project_path = project_dir
-        session.status = 'ready'
+        session.status = "ready"
         ProjectSessionRepository.save(session)
 
         tree, stats = scan_directory_and_stats(project_dir, project_dir)
         log.success("Project upload complete", files=stats.get("total_files", 0))
 
-        return jsonify({
-            "success": True,
-            "tree": tree,
-            "stats": stats
-        })
+        return jsonify({"success": True, "tree": tree, "stats": stats})
     except Exception as e:
-        session.status = 'failed'
+        session.status = "failed"
         ProjectSessionRepository.save(session)
         log.error(f"Project upload failed: {e}")
         return jsonify({"error": str(e)}), 500
 
-@project_bp.route('/<session_id>/file', methods=['GET'])
+
+@project_bp.route("/<session_id>/file", methods=["GET"])
 def get_project_file(session_id):
     session = ProjectSessionRepository.get_by_id(session_id)
     if not session:
         raise SessionNotFoundError()
 
-    rel_path = request.args.get('path', '').strip()
+    rel_path = request.args.get("path", "").strip()
     if not rel_path:
         raise InvalidRequestError("File path is required")
 
@@ -189,26 +177,23 @@ def get_project_file(session_id):
 
     try:
         # Read text content safely
-        with open(filepath, encoding='utf-8', errors='replace') as f:
+        with open(filepath, encoding="utf-8", errors="replace") as f:
             content = f.read()
 
-        return jsonify({
-            "path": rel_path,
-            "name": os.path.basename(rel_path),
-            "content": content
-        })
+        return jsonify({"path": rel_path, "name": os.path.basename(rel_path), "content": content})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@project_bp.route('/<session_id>/write_file', methods=['POST'])
+
+@project_bp.route("/<session_id>/write_file", methods=["POST"])
 def write_project_file(session_id):
     session = ProjectSessionRepository.get_by_id(session_id)
     if not session:
         raise SessionNotFoundError()
 
     data = request.json or {}
-    rel_path = data.get('path', '').strip()
-    content = data.get('content', '')
+    rel_path = data.get("path", "").strip()
+    content = data.get("content", "")
 
     if not rel_path:
         raise InvalidRequestError("File path is required")
@@ -222,14 +207,15 @@ def write_project_file(session_id):
     try:
         # Create directories if writing a new file
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
         invalidate_project_tree_cache(session_id)
         return jsonify({"success": True, "path": rel_path})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@project_bp.route('/<session_id>/scan', methods=['GET'])
+
+@project_bp.route("/<session_id>/scan", methods=["GET"])
 def rescan_project(session_id):
     log.route_request("GET", f"/project/{session_id[:12]}/scan")
 
@@ -241,17 +227,13 @@ def rescan_project(session_id):
         tree, stats = scan_directory_and_stats(session.project_path, session.project_path)
         set_cached_project_tree(session_id, tree, stats)
         log.success("Project rescan complete", files=stats.get("total_files", 0))
-        return jsonify({
-            "tree": tree,
-            "stats": stats
-        })
+        return jsonify({"tree": tree, "stats": stats})
     except Exception as e:
         log.error(f"Project scan failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 
-
-@project_bp.route('/<session_id>/chat', methods=['POST'])
+@project_bp.route("/<session_id>/chat", methods=["POST"])
 def chat_project(session_id):
     log.route_request("POST", f"/project/{session_id[:12]}/chat")
 
@@ -262,11 +244,11 @@ def chat_project(session_id):
 
     project_path = session.project_path
     data = request.json or {}
-    question = data.get('question', '').strip()
-    language = data.get('language', 'en')
-    model = data.get('model', session.model or config.DEFAULT_MODEL)
-    context_files = data.get('context_files', [])
-    agent_mode = data.get('agent_mode', True)
+    question = data.get("question", "").strip()
+    language = data.get("language", "en")
+    model = data.get("model", session.model or config.DEFAULT_MODEL)
+    context_files = data.get("context_files", [])
+    agent_mode = data.get("agent_mode", True)
 
     log.session_chat_start(session_id, question, agent_mode)
     log.info("Request details", model=model, lang=language, context_files_count=len(context_files))
@@ -279,8 +261,10 @@ def chat_project(session_id):
     if context_files:
         context_str_parts = [
             "\nADDITIONAL CONTEXT FILES SELECTED BY USER:",
-            ("CRITICAL: The content of these files is ALREADY provided below. "
-             "Do NOT output or repeat the code of these files in your response.")
+            (
+                "CRITICAL: The content of these files is ALREADY provided below. "
+                "Do NOT output or repeat the code of these files in your response."
+            ),
         ]
         loaded_files = 0
         for rel_path in context_files:
@@ -293,7 +277,7 @@ def chat_project(session_id):
                 continue
             if os.path.isfile(filepath):
                 try:
-                    with open(filepath, encoding='utf-8', errors='replace') as f:
+                    with open(filepath, encoding="utf-8", errors="replace") as f:
                         content = f.read()
                     if len(content) > 15000:
                         content = content[:15000] + "\n\n...[content truncated to save context]..."
@@ -327,10 +311,10 @@ def chat_project(session_id):
             context_str=context_str,
             tree_str=tree_str,
             agent_mode=agent_mode,
-            app=current_app._get_current_object()
+            app=current_app._get_current_object(),
         )
 
-    response = Response(stream_response(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
+    response = Response(stream_response(), mimetype="text/event-stream")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
     return response

@@ -21,53 +21,60 @@ from datetime import datetime
 # ── ANSI Color Codes ──────────────────────────────────────────
 class C:
     """ANSI color codes for terminal output."""
-    RESET      = "\033[0m"
-    BOLD       = "\033[1m"
-    DIM        = "\033[2m"
-    UNDERLINE  = "\033[4m"
+
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    UNDERLINE = "\033[4m"
     # Foreground
-    RED        = "\033[31m"
-    GREEN      = "\033[32m"
-    YELLOW     = "\033[33m"
-    BLUE       = "\033[34m"
-    MAGENTA    = "\033[35m"
-    CYAN       = "\033[36m"
-    WHITE      = "\033[37m"
-    GRAY       = "\033[90m"
-    BLACK      = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
+    GRAY = "\033[90m"
+    BLACK = "\033[30m"
     # Bright
-    BRIGHT_RED     = "\033[91m"
-    BRIGHT_GREEN   = "\033[92m"
-    BRIGHT_YELLOW  = "\033[93m"
-    BRIGHT_BLUE    = "\033[94m"
+    BRIGHT_RED = "\033[91m"
+    BRIGHT_GREEN = "\033[92m"
+    BRIGHT_YELLOW = "\033[93m"
+    BRIGHT_BLUE = "\033[94m"
     BRIGHT_MAGENTA = "\033[95m"
-    BRIGHT_WHITE   = "\033[97m"
-    BRIGHT_CYAN    = "\033[96m"
+    BRIGHT_WHITE = "\033[97m"
+    BRIGHT_CYAN = "\033[96m"
     # Backgrounds
-    BG_RED     = "\033[41m"
-    BG_GREEN   = "\033[42m"
-    BG_YELLOW  = "\033[43m"
-    BG_BLUE    = "\033[44m"
+    BG_RED = "\033[41m"
+    BG_GREEN = "\033[42m"
+    BG_YELLOW = "\033[43m"
+    BG_BLUE = "\033[44m"
     BG_MAGENTA = "\033[45m"
-    BG_CYAN    = "\033[46m"
+    BG_CYAN = "\033[46m"
 
 
 # ── Disable colors if not a TTY or NO_COLOR is set ────────────
 _NO_COLOR = os.environ.get("NO_COLOR", "").strip() != "" or not os.isatty(2)
 
 if _NO_COLOR:
+
     class _NoColor:
         """Strip all ANSI codes."""
-        def __getattr__(self, _): return ""
+
+        def __getattr__(self, _):
+            return ""
+
     C = _NoColor()  # type: ignore
 
 
 # ── Helper functions ──────────────────────────────────────────
 
+
 def _ts():
     """Compact timestamp: HH:MM:SS.mmm (local time, timezone-aware)."""
     now = datetime.now().astimezone()
     return now.strftime("%H:%M:%S") + f".{now.microsecond // 1000:03d}"
+
 
 def _truncate(s, maxlen=200):
     """Truncate a string to maxlen characters."""
@@ -77,6 +84,7 @@ def _truncate(s, maxlen=200):
     if len(s) <= maxlen:
         return s
     return s[:maxlen] + f"... ({len(s)} chars total)"
+
 
 def _short_session(session_id):
     """Show only first 8 chars of session_id."""
@@ -88,20 +96,20 @@ def _short_session(session_id):
 # ── Log tag styles ────────────────────────────────────────────
 # Each tag has: (label, fg_color, bg_color)
 _TAGS = {
-    "info":        (" INFO ", C.WHITE,      ""),
-    "debug":       (" DEBUG", C.GRAY,       ""),
-    "warning":     (" WARN ", C.BLACK,      C.BG_YELLOW),
-    "error":       (" ERROR", C.WHITE,      C.BG_RED),
-    "success":     ("  OK  ", C.WHITE,      C.BG_GREEN),
+    "info": (" INFO ", C.WHITE, ""),
+    "debug": (" DEBUG", C.GRAY, ""),
+    "warning": (" WARN ", C.BLACK, C.BG_YELLOW),
+    "error": (" ERROR", C.WHITE, C.BG_RED),
+    "success": ("  OK  ", C.WHITE, C.BG_GREEN),
     # Domain-specific tags
-    "agent":       (" AGENT", C.BRIGHT_CYAN,    ""),
-    "ollama":      ("OLLAMA", C.BRIGHT_MAGENTA, ""),
-    "tool":        (" TOOL ", C.BRIGHT_YELLOW,   ""),
-    "sse":         (" SSE  ", C.BRIGHT_BLUE,     ""),
-    "session":     ("SESSION", C.BRIGHT_GREEN,   ""),
-    "db":          ("  DB  ", C.CYAN,        ""),
-    "route":       ("ROUTE ", C.BLUE,        ""),
-    "parse":       ("PARSE ", C.YELLOW,      ""),
+    "agent": (" AGENT", C.BRIGHT_CYAN, ""),
+    "ollama": ("OLLAMA", C.BRIGHT_MAGENTA, ""),
+    "tool": (" TOOL ", C.BRIGHT_YELLOW, ""),
+    "sse": (" SSE  ", C.BRIGHT_BLUE, ""),
+    "session": ("SESSION", C.BRIGHT_GREEN, ""),
+    "db": ("  DB  ", C.CYAN, ""),
+    "route": ("ROUTE ", C.BLUE, ""),
+    "parse": ("PARSE ", C.YELLOW, ""),
 }
 
 
@@ -127,6 +135,7 @@ def _format_header(title, width=60):
 
 # ── Main Logger Class ─────────────────────────────────────────
 
+
 class AILogger:
     """
     Structured logger for AI Local Support.
@@ -139,9 +148,11 @@ class AILogger:
         self.logger = logging.getLogger(name)
         if not self.logger.handlers:
             handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter(
-                "%(message)s",
-            ))
+            handler.setFormatter(
+                logging.Formatter(
+                    "%(message)s",
+                )
+            )
             self.logger.addHandler(handler)
             self.logger.setLevel(logging.DEBUG)
 
@@ -192,8 +203,10 @@ class AILogger:
         """Log agent session start."""
         self.header(f"🤖 AGENT SESSION START — {_short_session(session_id)}")
         self._log(
-            "agent", f"{C.GREEN}Agent loop initialized{C.RESET}",
-            session=_short_session(session_id), model=model,
+            "agent",
+            f"{C.GREEN}Agent loop initialized{C.RESET}",
+            session=_short_session(session_id),
+            model=model,
             mode="agent" if agent_mode else "chat",
         )
 
@@ -209,16 +222,20 @@ class AILogger:
     def agent_ollama_call(self, session_id, iteration, messages_count):
         """Log when Ollama API is called."""
         self._log(
-            "ollama", "📞 Calling Ollama API...",
-            session=_short_session(session_id), iteration=iteration + 1,
+            "ollama",
+            "📞 Calling Ollama API...",
+            session=_short_session(session_id),
+            iteration=iteration + 1,
             messages_in_context=messages_count,
         )
 
     def agent_ollama_response(self, session_id, iteration, response_len):
         """Log when Ollama response is received."""
         self._log(
-            "ollama", f"📥 Response received: {C.BRIGHT_WHITE}{response_len}{C.RESET} chars",
-            session=_short_session(session_id), iteration=iteration + 1,
+            "ollama",
+            f"📥 Response received: {C.BRIGHT_WHITE}{response_len}{C.RESET} chars",
+            session=_short_session(session_id),
+            iteration=iteration + 1,
         )
 
     def agent_parse_tools(self, session_id, iteration, tool_count, tool_names):
@@ -248,7 +265,8 @@ class AILogger:
         """Log when a tool is about to be executed."""
         arg_summary = self._summarize_tool_args(tool_name, args)
         self._log(
-            "tool", f"{C.BOLD}▶ {C.BRIGHT_YELLOW}{tool_name}{C.RESET} {C.DIM}{arg_summary}{C.RESET}",
+            "tool",
+            f"{C.BOLD}▶ {C.BRIGHT_YELLOW}{tool_name}{C.RESET} {C.DIM}{arg_summary}{C.RESET}",
             call_id=call_id,
         )
 
@@ -284,7 +302,8 @@ class AILogger:
         """Log an SSE event being sent to client."""
         extra_str = " │ ".join(f"{k}={_truncate(v, 60)}" for k, v in extra.items())
         self._log(
-            "sse", f"→ {C.BRIGHT_CYAN}{event_type}{C.RESET} {C.DIM}{extra_str}{C.RESET}",
+            "sse",
+            f"→ {C.BRIGHT_CYAN}{event_type}{C.RESET} {C.DIM}{extra_str}{C.RESET}",
             session=_short_session(session_id),
         )
 
@@ -310,8 +329,10 @@ class AILogger:
         """Log the start of a chat interaction in a session."""
         self.header(f"💬 CHAT — Session {_short_session(session_id)}")
         self._log(
-            "session", f"Question: {C.BRIGHT_WHITE}{_truncate(question, 150)}{C.RESET}",
-            session=_short_session(session_id), agent_mode=agent_mode,
+            "session",
+            f"Question: {C.BRIGHT_WHITE}{_truncate(question, 150)}{C.RESET}",
+            session=_short_session(session_id),
+            agent_mode=agent_mode,
         )
 
     # ── Domain: DB ────────────────────────────────────────────
@@ -333,10 +354,10 @@ class AILogger:
         if tool_name == "READ_FILE":
             return f"({args.get('path', '?')})"
         elif tool_name == "WRITE_FILE":
-            content = args.get('content', '')
+            content = args.get("content", "")
             return f"({args.get('path', '?')}, {len(content)} chars)"
         elif tool_name == "EDIT_FILE":
-            search = args.get('search', '')
+            search = args.get("search", "")
             return f"({args.get('path', '?')}, search={len(search)} chars)"
         elif tool_name == "LIST_DIR":
             return f"({args.get('path', '.')})"
@@ -347,10 +368,10 @@ class AILogger:
         elif tool_name == "RUN_COMMAND":
             return f"({args.get('command', '')})"
         elif tool_name in {"RUN_TESTS", "LINT_CODE"}:
-            cmd = args.get('command', '')
+            cmd = args.get("command", "")
             return f"({cmd})" if cmd else "(auto-detect)"
         elif tool_name == "GIT_DIFF":
-            p = args.get('path', '')
+            p = args.get("path", "")
             return f"({p})" if p else "(all)"
         elif tool_name == "GIT_LOG":
             return f"(count={args.get('count', '10')})"

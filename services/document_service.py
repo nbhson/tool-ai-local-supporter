@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in config.ALLOWED_EXTENSIONS
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in config.ALLOWED_EXTENSIONS
+
 
 def is_image_file(filepath):
-    ext = filepath.rsplit('.', 1)[1].lower() if '.' in filepath else ''
+    ext = filepath.rsplit(".", 1)[1].lower() if "." in filepath else ""
     return ext in config.IMAGE_EXTENSIONS
 
 
@@ -33,6 +33,7 @@ def extract_text_from_image_ocr(filepath):
         except Exception as e:
             return f"OCR Error: {e!s}"
     return None
+
 
 def extract_text_from_file(filepath):
     try:
@@ -48,6 +49,7 @@ def extract_text_from_file(filepath):
     except Exception as e:
         return f"Error extracting text: {e!s}"
 
+
 def resize_and_compress_image(filepath, max_size=None, quality=None):
     """Resize image to reduce base64 size."""
     if max_size is None:
@@ -57,26 +59,25 @@ def resize_and_compress_image(filepath, max_size=None, quality=None):
     try:
         with Image.open(filepath) as source_img:
             img = source_img
-            if img.mode in ('RGBA', 'P'):
-                img = img.convert('RGB')
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
             img.thumbnail(max_size, Image.Resampling.LANCZOS)
             buffer = io.BytesIO()
             img.save(buffer, format="JPEG", quality=quality)
-            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+            return base64.b64encode(buffer.getvalue()).decode("utf-8")
     except Exception as e:
         logger.exception(f"Error compressing image: {e}")
         return None
+
 
 def cleanup_old_uploads(upload_dir):
     try:
         now = time.time()
         for filename in os.listdir(upload_dir):
             filepath = os.path.join(upload_dir, filename)
-            is_old_file = os.path.isfile(filepath) and \
-                os.stat(filepath).st_mtime < now - config.CLEANUP_EXPIRE_SECONDS
+            is_old_file = os.path.isfile(filepath) and os.stat(filepath).st_mtime < now - config.CLEANUP_EXPIRE_SECONDS
             if is_old_file:
                 os.remove(filepath)
                 logger.info(f"Cleaned up old file: {filename}")
     except Exception as e:
         logger.error(f"Error in cleanup: {e}")
-

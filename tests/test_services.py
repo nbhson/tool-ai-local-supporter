@@ -1,4 +1,5 @@
 """Unit tests for service-layer logic (helper, RAG, agent tools, tasks)."""
+
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,7 @@ from tasks import DocumentProcessingError, _build_greeting
 # ---------------------------------------------------------------------------
 # helper_service
 # ---------------------------------------------------------------------------
+
 
 def test_parse_ollama_sse_chunk_content():
     chunk = 'data: {"content": "hello"}\n\n'
@@ -70,6 +72,7 @@ def test_summarize_old_messages_truncates_long_content():
 # rag_service — pure helpers
 # ---------------------------------------------------------------------------
 
+
 def test_code_aware_split_short_text_uses_recursive_splitter():
     text = "just a plain paragraph. " * 30
     chunks = _code_aware_split(text, chunk_size=200, chunk_overlap=20)
@@ -79,9 +82,7 @@ def test_code_aware_split_short_text_uses_recursive_splitter():
 
 def test_code_aware_split_python_code_at_boundaries():
     # Keep indicator density above the 15% code-detection threshold
-    code = "\n".join(
-        f"def function_{i}():" + "\n    pass" * 5 for i in range(20)
-    )
+    code = "\n".join(f"def function_{i}():" + "\n    pass" * 5 for i in range(20))
     chunks = _code_aware_split(code, chunk_size=100000, chunk_overlap=0)
     # Each def block should start its own chunk
     starts = [c.strip().startswith("def ") for c in chunks]
@@ -114,6 +115,7 @@ def test_keyword_search_no_match_returns_empty():
 # ---------------------------------------------------------------------------
 # agent_service — directory scanning
 # ---------------------------------------------------------------------------
+
 
 def test_scan_directory_and_stats_skips_excluded_dirs(tmp_path):
     (tmp_path / "src").mkdir()
@@ -175,6 +177,7 @@ def test_parse_all_tool_calls_edit_file_payload():
 # ---------------------------------------------------------------------------
 # agent_tool_service — file tools via ToolRegistry
 # ---------------------------------------------------------------------------
+
 
 def test_read_file_tool_returns_content(tmp_path):
     (tmp_path / "note.txt").write_text("hello world")
@@ -245,6 +248,7 @@ def test_regex_search_tool_rejects_invalid_pattern(tmp_path):
 # document_service / extractor_service
 # ---------------------------------------------------------------------------
 
+
 def test_extract_text_from_file_txt(tmp_path):
     f = tmp_path / "doc.txt"
     f.write_text("nội dung văn bản")
@@ -297,6 +301,7 @@ def test_resize_and_compress_image_invalid_file(tmp_path):
 # ---------------------------------------------------------------------------
 # tasks
 # ---------------------------------------------------------------------------
+
 
 def _fake_doc_file(tmp_path, name="a.txt"):
     return SimpleNamespace(
@@ -371,6 +376,7 @@ def test_process_single_file_image_non_vision_model_ocr_fallback(tmp_path):
 # ---------------------------------------------------------------------------
 # config sanity
 # ---------------------------------------------------------------------------
+
 
 def test_config_hybrid_weights_sum_to_one():
     import config

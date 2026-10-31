@@ -31,8 +31,8 @@ def _process_single_file(doc_file, model, is_vision):
     if is_image:
         base64_image = resize_and_compress_image(doc_file.filepath)
         if not base64_image:
-            with open(doc_file.filepath, 'rb') as img_file:
-                base64_image = base64.b64encode(img_file.read()).decode('utf-8')
+            with open(doc_file.filepath, "rb") as img_file:
+                base64_image = base64.b64encode(img_file.read()).decode("utf-8")
 
         # Check if model supports vision
         if not is_vision:
@@ -43,8 +43,9 @@ def _process_single_file(doc_file, model, is_vision):
                     raise DocumentProcessingError(ocr_text)
                 extracted_text = ocr_text
             else:
-                no_text_msg = ("[Không tìm thấy văn bản nào trong hình ảnh / "
-                               f"No text detected in this image: {doc_file.filename}]")
+                no_text_msg = (
+                    f"[Không tìm thấy văn bản nào trong hình ảnh / No text detected in this image: {doc_file.filename}]"
+                )
                 extracted_text = no_text_msg
         else:
             extracted_text = "[Image analyzed via vision model]"
@@ -55,6 +56,7 @@ def _process_single_file(doc_file, model, is_vision):
 
     return extracted_text, base64_image
 
+
 def _build_greeting(doc_files, vision_images_count, language):
     """Formulate the greeting message based on processed files."""
     filenames_list = [f.filename for f in doc_files]
@@ -63,17 +65,19 @@ def _build_greeting(doc_files, vision_images_count, language):
         filenames_str = filenames_str[:57] + "..."
 
     if vision_images_count > 0:
-        if language == 'vi':
-            return (f"Tôi đã nhận diện {vision_images_count} hình ảnh ({filenames_str}). "
-                    f"Bạn cần tôi trợ giúp gì về các hình ảnh này?")
-        return (f"I have processed {vision_images_count} images ({filenames_str}). "
-                f"How can I help you with them?")
+        if language == "vi":
+            return (
+                f"Tôi đã nhận diện {vision_images_count} hình ảnh ({filenames_str}). "
+                f"Bạn cần tôi trợ giúp gì về các hình ảnh này?"
+            )
+        return f"I have processed {vision_images_count} images ({filenames_str}). How can I help you with them?"
 
-    if language == 'vi':
-        return (f"Tôi đã phân tích xong {len(doc_files)} tài liệu ({filenames_str}). "
-                f"Bạn cần tôi giúp gì về nội dung này?")
-    return (f"I have analyzed {len(doc_files)} documents ({filenames_str}). "
-            f"How can I help you with them?")
+    if language == "vi":
+        return (
+            f"Tôi đã phân tích xong {len(doc_files)} tài liệu ({filenames_str}). Bạn cần tôi giúp gì về nội dung này?"
+        )
+    return f"I have analyzed {len(doc_files)} documents ({filenames_str}). How can I help you with them?"
+
 
 @celery.task(name="tasks.process_document_task", bind=True, max_retries=3)
 def process_document_task(self, session_id, language, model):
@@ -102,7 +106,7 @@ def process_document_task(self, session_id, language, model):
                 if is_image_file(doc_file.filepath) and is_vision:
                     vision_images.append(base64_image)
 
-                doc_file.status = 'ready'
+                doc_file.status = "ready"
                 doc_file.base64_image = base64_image
                 doc_file.extracted_text = extracted_text
                 db.session.add(doc_file)
@@ -116,7 +120,7 @@ def process_document_task(self, session_id, language, model):
 
             except Exception as e:
                 logger.exception(f"Error processing file {doc_file.filename}: {e}")
-                doc_file.status = 'failed'
+                doc_file.status = "failed"
                 doc_file.error_message = str(e)
                 db.session.add(doc_file)
 
@@ -127,7 +131,7 @@ def process_document_task(self, session_id, language, model):
             db.session.rollback()
 
         # Now update the aggregate session status
-        failed_files = [f for f in doc_files if f.status == 'failed']
+        failed_files = [f for f in doc_files if f.status == "failed"]
         if len(failed_files) == len(doc_files):
             raise DocumentProcessingError("Tất cả các tệp đều không xử lý được. / All files failed to process.")
 
@@ -141,9 +145,9 @@ def process_document_task(self, session_id, language, model):
         greeting = _build_greeting(doc_files, len(vision_images), language)
 
         # Update database record
-        session.status = 'ready'
+        session.status = "ready"
         # Save first successful file preview for backward compatibility
-        ready_files = [f for f in doc_files if f.status == 'ready']
+        ready_files = [f for f in doc_files if f.status == "ready"]
         if ready_files:
             session.base64_image = ready_files[0].base64_image
             session.extracted_text = ready_files[0].extracted_text
@@ -151,7 +155,7 @@ def process_document_task(self, session_id, language, model):
         db.session.add(session)
 
         # Add greeting message to chat history
-        greeting_msg = ChatMessage(session_id=session_id, role='assistant', content=greeting)
+        greeting_msg = ChatMessage(session_id=session_id, role="assistant", content=greeting)
         db.session.add(greeting_msg)
 
         db.session.commit()
@@ -162,7 +166,7 @@ def process_document_task(self, session_id, language, model):
         try:
             session = db.session.get(DocumentSession, session_id)
             if session:
-                session.status = 'failed'
+                session.status = "failed"
                 session.error_message = str(e)
                 db.session.add(session)
                 db.session.commit()

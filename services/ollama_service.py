@@ -11,10 +11,12 @@ from services.logger import log
 # Create a persistent session for HTTP connection pooling to Ollama API
 ollama_session = requests.Session()
 
+
 def is_vision_model(model_name):
     """Check if model supports vision/multimodal."""
     model_lower = model_name.lower()
     return any(vm in model_lower for vm in config.VISION_MODELS)
+
 
 def call_ollama(messages, model=None, stream=False):
     model = model or config.DEFAULT_MODEL
@@ -25,11 +27,7 @@ def call_ollama(messages, model=None, stream=False):
         "messages": messages,
         "stream": stream,
         "keep_alive": "15m",
-        "options": {
-            "temperature": 0.2,
-            "num_predict": 4096,
-            "num_ctx": config.OLLAMA_NUM_CTX
-        }
+        "options": {"temperature": 0.2, "num_predict": 4096, "num_ctx": config.OLLAMA_NUM_CTX},
     }
 
     def generate_error(msg):
@@ -42,9 +40,7 @@ def call_ollama(messages, model=None, stream=False):
         try:
             log.debug(f"POST {config.OLLAMA_URL}/chat (attempt {attempt + 1}/{max_retries})")
             req_start = time.time()
-            response = ollama_session.post(
-                f"{config.OLLAMA_URL}/chat", json=payload, timeout=(10, 600), stream=stream
-            )
+            response = ollama_session.post(f"{config.OLLAMA_URL}/chat", json=payload, timeout=(10, 600), stream=stream)
             req_ms = (time.time() - req_start) * 1000
 
             if response.status_code != 200:
@@ -56,12 +52,13 @@ def call_ollama(messages, model=None, stream=False):
             log.debug(f"Ollama responded {response.status_code} in {req_ms:.0f}ms")
 
             if stream:
+
                 def generate(resp):
                     chunk_count = 0
                     for line in resp.iter_lines():
                         if line:
                             try:
-                                chunk = json.loads(line.decode('utf-8'))
+                                chunk = json.loads(line.decode("utf-8"))
                                 content = chunk.get("message", {}).get("content", "")
                                 if content:
                                     chunk_count += 1
@@ -70,13 +67,14 @@ def call_ollama(messages, model=None, stream=False):
                                 log.warning(f"Error parsing Ollama chunk: {e}")
                     log.debug(f"Stream complete: {chunk_count} chunks received")
                     yield "data: [DONE]\n\n"
+
                 return generate(response)
             else:
                 return response.json()
         except requests.exceptions.ConnectionError:
             if attempt < max_retries - 1:
                 log.ollama_retry(attempt, max_retries, "Connection refused")
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
             else:
                 log.error(f"Failed to connect to Ollama after {max_retries} attempts.")
                 err_msg = "Cannot connect to Ollama. Make sure Ollama is running"
@@ -89,5 +87,3 @@ def call_ollama(messages, model=None, stream=False):
             log.error(f"Unexpected error in call_ollama: {e}")
             err_msg = f"Ollama error: {e!s}"
             return generate_error(err_msg) if stream else {"error": err_msg}
-
-
