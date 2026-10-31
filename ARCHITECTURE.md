@@ -153,7 +153,9 @@ ai-local-support/
 │   ├── logger.py           # Hệ thống Structured Logger màu sắc (AILogger singleton)
 │   └── errors.py           # Định nghĩa các Exception tùy chỉnh của hệ thống
 ├── tests/                  # Thư mục kiểm thử tự động
-│   └── test_basic.py       # Bộ kiểm thử hồi quy cơ bản bằng Pytest
+│   ├── test_basic.py       # Bộ kiểm thử hồi quy cơ bản bằng Pytest
+│   ├── test_security.py    # Kiểm thử bảo mật (whitelist lệnh, upload guard)
+│   └── test_services.py    # Unit test cho tầng services (RAG, agent tools, tasks)
 ├── templates/              # Thư mục chứa giao diện HTML
 │   └── index.html          # Giao diện chính ứng dụng Single Page
 ├── static/                 # Thư mục tài nguyên tĩnh (Modular)

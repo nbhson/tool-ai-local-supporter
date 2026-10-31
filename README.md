@@ -89,6 +89,9 @@ ai-local-support/
 ├── celery_app.py           # Celery App configuration
 ├── tasks.py                # Celery background tasks
 ├── config.py               # System configuration (models, RAG, tools...)
+├── pyproject.toml          # Cấu hình ruff (lint) & pytest
+├── requirements.txt        # Dependencies production
+├── requirements-dev.txt    # Dependencies phát triển (pytest, ruff)
 ├── blueprints/             # API endpoint modules (Controller Layer)
 │   ├── doc.py              # Document APIs (upload, RAG chat, status)
 │   ├── chat.py             # Code analysis & Free chat APIs
@@ -112,7 +115,23 @@ ai-local-support/
 ├── templates/
 │   └── index.html          # Single Page Application
 └── tests/
-    └── test_basic.py       # Pytest regression tests
+    ├── test_basic.py       # Pytest regression tests
+    ├── test_security.py    # Security tests (command whitelist, upload guard)
+    └── test_services.py    # Unit tests cho service layer (RAG, agent tools, tasks)
+```
+
+---
+
+## 🧪 Kiểm thử (Testing)
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+
+# Chạy toàn bộ test
+python3 -m pytest tests/ -q
+
+# Kiểm tra lint
+python3 -m ruff check .
 ```
 
 ---

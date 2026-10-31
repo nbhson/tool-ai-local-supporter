@@ -199,7 +199,7 @@ Bạn có thể thay đổi các cấu hình như Model mặc định, URL cổn
 - **Giải pháp**: Đảm bảo file `requirements.txt` sử dụng phiên bản `chromadb>=0.5.3` để pip tự tải bản precompiled binary (.whl) mà không cần build từ mã nguồn.
 
 ### 3. Lỗi liên quan đến thư viện `python-magic` trên Windows
-- **Giải pháp**: Không cài đặt `python-magic` gốc vì nó yêu cầu file DLL hệ thống của Linux. Trong codebase đã sử dụng cơ chế fallback thông minh khác để nhận diện loại file tải lên mà không cần thư viện này.
+- **Giải pháp**: Không cần cài đặt `python-magic` — thư viện này đã bị loại khỏi `requirements.txt` (không còn được sử dụng). Việc nhận diện loại file tải lên dựa trên phần mở rộng đã được whitelist trong `config.py`.
 
 ### 4. Celery báo lỗi: `Connection closed by server` hoặc ngắt kết nối liên tục khi sử dụng Redis trên WSL 2
 - **Nguyên nhân**: Trên Windows 11, WSL 2 có cơ chế tự động tạm dừng hoặc tắt máy ảo (auto-pause/auto-shutdown) sau 15–60 giây không hoạt động để tiết kiệm pin/RAM. Do kết nối chạy nền từ Windows Host của Celery không được tính là hoạt động trực tiếp trên WSL, máy ảo WSL 2 sẽ tự động đi ngủ và ngắt kết nối socket của Redis.
