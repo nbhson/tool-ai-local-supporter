@@ -1,3 +1,10 @@
+"""RAG service: chunking, embedding và truy xuất ngữ cảnh từ ChromaDB.
+
+Hàm chính:
+- index_document: chia nhỏ văn bản (code-aware) và lưu embedding vào ChromaDB.
+- retrieve_context: hybrid search (vector + keyword) với RRF fusion.
+"""
+
 import logging
 import math
 import os
@@ -11,16 +18,28 @@ import config
 
 logger = logging.getLogger(__name__)
 
-# Initialize local ChromaDB persistent client
+# ChromaDB directory lives next to the project root
 CHROMA_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "chroma_db")
-chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 
 # Persistent session for connection pooling
 rag_session = requests.Session()
 
+# Lazily-created ChromaDB persistent client. Creating it at import time made
+# merely importing this module touch the chroma_db/ directory (slow startup,
+# side effects in tests/tools that never use RAG).
+chroma_client = None
+
 _fastembed_model = None
 
+def get_chroma_client():
+    """Return the shared ChromaDB PersistentClient, creating it on first use."""
+    global chroma_client
+    if chroma_client is None:
+        chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+    return chroma_client
+
 def get_embedding_model():
+    """Return the shared fastembed TextEmbedding model, loading it on first use."""
     global _fastembed_model
     if _fastembed_model is None:
         from fastembed import TextEmbedding
@@ -53,7 +72,10 @@ def get_ollama_embedding(text, model=None):
         return None
 
 def get_ollama_embeddings_batch(texts, model=None):
-    """Generate embeddings for a list of texts using fastembed batching. Falls back to Ollama API."""
+    """Generate embeddings for a list of texts using fastembed batching. Falls back to Ollama API.
+
+    Falls back to sequential per-text embeddings if the batch Ollama endpoint fails.
+    """
     if not texts:
         return []
     try:
@@ -174,7 +196,7 @@ def index_document(session_id, text):
 
     # 2. Get or create collection for this session
     collection_name = f"sess_{session_id}"
-    collection = chroma_client.get_or_create_collection(name=collection_name)
+    collection = get_chroma_client().get_or_create_collection(name=collection_name)
 
     # 3. Store chunks and embeddings in batches
     documents = []
@@ -247,7 +269,7 @@ def retrieve_context(session_id, query, top_k=None):
 
     try:
         collection_name = f"sess_{session_id}"
-        collection = chroma_client.get_collection(name=collection_name)
+        collection = get_chroma_client().get_collection(name=collection_name)
 
         # Get total chunk count to decide strategy
         total = collection.count()
