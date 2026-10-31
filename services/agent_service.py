@@ -1,3 +1,5 @@
+"""ReAct agent loop: parse tool calls, execute tools, stream SSE events."""
+
 import json
 import logging
 import os

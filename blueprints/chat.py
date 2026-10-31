@@ -1,3 +1,5 @@
+"""Free-chat blueprint: session init, SSE chat, history clearing."""
+
 import uuid
 
 from flask import Blueprint, Response, current_app, jsonify, request

@@ -1,3 +1,5 @@
+"""Data-access layer: thin repository wrappers over SQLAlchemy models."""
+
 from services.database import db
 from services.models import (
     ChatMessage,

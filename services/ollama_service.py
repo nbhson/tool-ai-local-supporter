@@ -1,3 +1,5 @@
+"""Ollama HTTP client with connection pooling, retries and SSE streaming."""
+
 import json
 import time
 

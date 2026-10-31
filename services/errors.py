@@ -1,3 +1,5 @@
+"""Application error types mapped to HTTP responses by the Flask errorhandler."""
+
 class AppError(Exception):
     status_code = 400
 

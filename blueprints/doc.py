@@ -1,3 +1,5 @@
+"""Document analysis blueprint: upload, processing status, RAG-backed chat."""
+
 import os
 import threading
 import time

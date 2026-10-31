@@ -1,3 +1,5 @@
+"""Project workspace blueprint: init/scan, file read/write, agent SSE chat."""
+
 import os
 import uuid
 

@@ -1,3 +1,5 @@
+"""Extractor factory mapping file extensions to text extractors (pdf/docx/txt)."""
+
 from typing import ClassVar
 
 import docx

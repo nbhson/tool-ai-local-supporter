@@ -1,3 +1,5 @@
+"""SQLAlchemy ORM models: sessions, chat messages, uploaded documents."""
+
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import deferred

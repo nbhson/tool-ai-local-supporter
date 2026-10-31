@@ -1,3 +1,5 @@
+"""Document utilities: extension validation, text extraction, image OCR/compression, cleanup."""
+
 import base64
 import io
 import logging

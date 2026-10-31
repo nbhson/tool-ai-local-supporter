@@ -1,3 +1,5 @@
+"""Agent tool registry: whitelist commands, execute file/git/test tools safely."""
+
 import os
 import re
 import shlex

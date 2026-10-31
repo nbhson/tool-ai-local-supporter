@@ -1,3 +1,5 @@
+"""Shared helpers: SSE formatting, Ollama chunk parsing, chat history, safe path joins."""
+
 import json
 import os
 

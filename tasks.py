@@ -1,3 +1,5 @@
+"""Celery tasks: background document processing and RAG indexing."""
+
 import base64
 import logging
 
