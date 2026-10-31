@@ -78,7 +78,7 @@ def process_document_task(self, session_id, language, model):
     """Asynchronously process multiple documents/images: extract text/image, run OCR, chunk and embed into ChromaDB."""
     try:
         logger.info(f"Starting background processing for session {session_id}")
-        session = DocumentSession.query.get(session_id)
+        session = db.session.get(DocumentSession, session_id)
         if not session:
             logger.error(f"Session {session_id} not found in database.")
             return
@@ -158,7 +158,7 @@ def process_document_task(self, session_id, language, model):
     except Exception as e:
         logger.exception(f"Error occurred in process_document_task: {e}")
         try:
-            session = DocumentSession.query.get(session_id)
+            session = db.session.get(DocumentSession, session_id)
             if session:
                 session.status = 'failed'
                 session.error_message = str(e)

@@ -1,8 +1,13 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import deferred
 
 from services.database import db
+
+
+def _utcnow():
+    """Timezone-aware UTC timestamp (datetime.utcnow is deprecated since 3.12)."""
+    return datetime.now(UTC)
 
 
 class DocumentSession(db.Model):
@@ -18,7 +23,7 @@ class DocumentSession(db.Model):
     file_type = db.Column(db.String(20), nullable=False)      # 'document', 'image'
     base64_image = deferred(db.Column(db.Text, nullable=True))          # Stored for vision model
     extracted_text = deferred(db.Column(db.Text, nullable=True))        # Backup/preview text
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     # Relationships
     files = db.relationship('DocumentFile', backref='session', lazy=True, cascade="all, delete-orphan")
@@ -35,7 +40,7 @@ class DocumentFile(db.Model):
     extracted_text = deferred(db.Column(db.Text, nullable=True))        # Backup/preview text
     status = db.Column(db.String(50), default='processing')    # 'processing', 'ready', 'failed'
     error_message = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
 
 class ChatSession(db.Model):
@@ -44,7 +49,7 @@ class ChatSession(db.Model):
     session_id = db.Column(db.String(36), primary_key=True)
     model = db.Column(db.String(100), nullable=False)
     ui_language = db.Column(db.String(10), default='en')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
 
 class ProjectSession(db.Model):
@@ -56,7 +61,7 @@ class ProjectSession(db.Model):
     status = db.Column(db.String(50), default='processing')  # 'processing', 'ready', 'failed'
     model = db.Column(db.String(100), nullable=False)
     ui_language = db.Column(db.String(10), default='en')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
 
 class ChatMessage(db.Model):
@@ -66,4 +71,4 @@ class ChatMessage(db.Model):
     session_id = db.Column(db.String(36), index=True, nullable=False)
     role = db.Column(db.String(20), nullable=False)           # 'system', 'user', 'assistant'
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)

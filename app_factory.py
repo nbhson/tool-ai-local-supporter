@@ -18,8 +18,29 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
+
+def _enable_sqlite_wal():
+    """Enable WAL mode + NORMAL synchronous on every new SQLite connection.
+
+    Prevents "database is locked" errors under concurrent write loads. PRAGMA
+    synchronous is per-connection, so it must be applied on every connect —
+    not just the first one.
+    """
+    if not config.SQLALCHEMY_DATABASE_URI.startswith('sqlite'):
+        return
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+
 def create_app():
     app = Flask(__name__, template_folder='templates', static_folder='static')
+    _enable_sqlite_wal()
     app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
     app.config['MAX_CONTENT_LENGTH'] = config.MAX_CONTENT_LENGTH
     app.config['SQLALCHEMY_DATABASE_URI'] = config.SQLALCHEMY_DATABASE_URI
@@ -31,22 +52,6 @@ def create_app():
 
     # Import models so SQLAlchemy metadata knows about them before create_all()
     import services.models  # noqa: F401
-
-    # Enable WAL mode for SQLite to prevent "database is locked" errors under concurrent write loads.
-    # Using a flag to ensure PRAGMA is set only once per process, not on every connection.
-    _sqlite_pragma_set = False
-    if config.SQLALCHEMY_DATABASE_URI.startswith('sqlite'):
-        from sqlalchemy import event
-        from sqlalchemy.engine import Engine
-        @event.listens_for(Engine, "connect")
-        def set_sqlite_pragma(dbapi_connection, connection_record):
-            nonlocal _sqlite_pragma_set
-            if not _sqlite_pragma_set:
-                cursor = dbapi_connection.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA synchronous=NORMAL")
-                cursor.close()
-                _sqlite_pragma_set = True
 
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 

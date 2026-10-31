@@ -11,7 +11,7 @@ from services.models import (
 class DocumentSessionRepository:
     @staticmethod
     def get_by_id(session_id):
-        return DocumentSession.query.get(session_id)
+        return db.session.get(DocumentSession, session_id)
 
     @staticmethod
     def save(session):
@@ -31,17 +31,11 @@ class DocumentSessionRepository:
     def get_files_by_session_id(session_id):
         return DocumentFile.query.filter_by(session_id=session_id).all()
 
-    @staticmethod
-    def save_file(doc_file):
-        db.session.add(doc_file)
-        db.session.commit()
-        return doc_file
-
 
 class ChatSessionRepository:
     @staticmethod
     def get_by_id(session_id):
-        return ChatSession.query.get(session_id)
+        return db.session.get(ChatSession, session_id)
 
     @staticmethod
     def save(session):
@@ -52,7 +46,7 @@ class ChatSessionRepository:
 class ProjectSessionRepository:
     @staticmethod
     def get_by_id(session_id):
-        return ProjectSession.query.get(session_id)
+        return db.session.get(ProjectSession, session_id)
 
     @staticmethod
     def save(session):
@@ -61,10 +55,6 @@ class ProjectSessionRepository:
         return session
 
 class ChatMessageRepository:
-    @staticmethod
-    def get_by_id(message_id):
-        return ChatMessage.query.get(message_id)
-
     @staticmethod
     def get_messages_by_session_id(session_id, limit=None):
         if limit:
