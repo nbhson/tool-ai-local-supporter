@@ -65,8 +65,8 @@ if _NO_COLOR:
 # ── Helper functions ──────────────────────────────────────────
 
 def _ts():
-    """Compact timestamp: HH:MM:SS.mmm"""
-    now = datetime.now()
+    """Compact timestamp: HH:MM:SS.mmm (local time, timezone-aware)."""
+    now = datetime.now().astimezone()
     return now.strftime("%H:%M:%S") + f".{now.microsecond // 1000:03d}"
 
 def _truncate(s, maxlen=200):
@@ -116,10 +116,11 @@ def _format_tag(tag_name):
 def _format_header(title, width=60):
     """Render a decorative section header."""
     line = "═" * width
+    pad = " " * max(0, width - len(title) - 2)
     return (
         f"\n"
         f"{C.CYAN}{C.BOLD}╔{line}╗{C.RESET}\n"
-        f"{C.CYAN}{C.BOLD}║{C.RESET} {C.BOLD}{title}{C.RESET}{' ' * max(0, width - len(title) - 2)}{C.CYAN}{C.BOLD}║{C.RESET}\n"
+        f"{C.CYAN}{C.BOLD}║{C.RESET} {C.BOLD}{title}{C.RESET}{pad}{C.CYAN}{C.BOLD}║{C.RESET}\n"
         f"{C.CYAN}{C.BOLD}╚{line}╝{C.RESET}"
     )
 
@@ -150,7 +151,9 @@ class AILogger:
         tag_str = _format_tag(tag)
         extra = ""
         if kwargs:
-            pairs = " │ ".join(f"{C.DIM}{k}{C.RESET}={C.BRIGHT_WHITE}{_truncate(v, 80)}{C.RESET}" for k, v in kwargs.items())
+            pairs = " │ ".join(
+                f"{C.DIM}{k}{C.RESET}={C.BRIGHT_WHITE}{_truncate(v, 80)}{C.RESET}" for k, v in kwargs.items()
+            )
             extra = f"\n{C.GRAY}{'':>20}└─ {pairs}{C.RESET}"
 
         line = f"{C.GRAY}{ts}{C.RESET} {tag_str}{message}{extra}"
@@ -188,20 +191,35 @@ class AILogger:
     def agent_start(self, session_id, question, model, agent_mode):
         """Log agent session start."""
         self.header(f"🤖 AGENT SESSION START — {_short_session(session_id)}")
-        self._log("agent", f"{C.GREEN}Agent loop initialized{C.RESET}", session=_short_session(session_id), model=model, mode="agent" if agent_mode else "chat")
+        self._log(
+            "agent", f"{C.GREEN}Agent loop initialized{C.RESET}",
+            session=_short_session(session_id), model=model,
+            mode="agent" if agent_mode else "chat",
+        )
 
     def agent_iteration(self, session_id, iteration, max_iter):
         """Log start of an agent iteration."""
         self.separator()
-        self._log("agent", f"{C.BOLD}🔄 Iteration {C.BRIGHT_CYAN}{iteration + 1}{C.RESET}{C.BOLD}/{max_iter}{C.RESET}", session=_short_session(session_id))
+        self._log(
+            "agent",
+            f"{C.BOLD}🔄 Iteration {C.BRIGHT_CYAN}{iteration + 1}{C.RESET}{C.BOLD}/{max_iter}{C.RESET}",
+            session=_short_session(session_id),
+        )
 
     def agent_ollama_call(self, session_id, iteration, messages_count):
         """Log when Ollama API is called."""
-        self._log("ollama", "📞 Calling Ollama API...", session=_short_session(session_id), iteration=iteration + 1, messages_in_context=messages_count)
+        self._log(
+            "ollama", "📞 Calling Ollama API...",
+            session=_short_session(session_id), iteration=iteration + 1,
+            messages_in_context=messages_count,
+        )
 
     def agent_ollama_response(self, session_id, iteration, response_len):
         """Log when Ollama response is received."""
-        self._log("ollama", f"📥 Response received: {C.BRIGHT_WHITE}{response_len}{C.RESET} chars", session=_short_session(session_id), iteration=iteration + 1)
+        self._log(
+            "ollama", f"📥 Response received: {C.BRIGHT_WHITE}{response_len}{C.RESET} chars",
+            session=_short_session(session_id), iteration=iteration + 1,
+        )
 
     def agent_parse_tools(self, session_id, iteration, tool_count, tool_names):
         """Log parsed tool calls."""
@@ -209,11 +227,19 @@ class AILogger:
             self._log("parse", f"{C.DIM}No tool calls found in response{C.RESET}", session=_short_session(session_id))
         else:
             names = ", ".join(tool_names)
-            self._log("parse", f"🔧 Found {C.BRIGHT_WHITE}{tool_count}{C.RESET} tool call(s): {C.BRIGHT_YELLOW}{names}{C.RESET}", session=_short_session(session_id))
+            self._log(
+                "parse",
+                f"🔧 Found {C.BRIGHT_WHITE}{tool_count}{C.RESET} tool call(s): {C.BRIGHT_YELLOW}{names}{C.RESET}",
+                session=_short_session(session_id),
+            )
 
     def agent_finish(self, session_id, total_iterations):
         """Log agent loop completion."""
-        self._log("agent", f"{C.GREEN}{C.BOLD}✅ Agent finished after {total_iterations} iteration(s){C.RESET}", session=_short_session(session_id))
+        self._log(
+            "agent",
+            f"{C.GREEN}{C.BOLD}✅ Agent finished after {total_iterations} iteration(s){C.RESET}",
+            session=_short_session(session_id),
+        )
         self.separator()
 
     # ── Domain: Tool Execution ────────────────────────────────
@@ -221,7 +247,10 @@ class AILogger:
     def tool_call(self, tool_name, args, call_id=""):
         """Log when a tool is about to be executed."""
         arg_summary = self._summarize_tool_args(tool_name, args)
-        self._log("tool", f"{C.BOLD}▶ {C.BRIGHT_YELLOW}{tool_name}{C.RESET} {C.DIM}{arg_summary}{C.RESET}", call_id=call_id)
+        self._log(
+            "tool", f"{C.BOLD}▶ {C.BRIGHT_YELLOW}{tool_name}{C.RESET} {C.DIM}{arg_summary}{C.RESET}",
+            call_id=call_id,
+        )
 
     def tool_result(self, tool_name, result, call_id="", duration_ms=None):
         """Log tool execution result."""
@@ -254,7 +283,10 @@ class AILogger:
     def sse_send(self, event_type, session_id="", **extra):
         """Log an SSE event being sent to client."""
         extra_str = " │ ".join(f"{k}={_truncate(v, 60)}" for k, v in extra.items())
-        self._log("sse", f"→ {C.BRIGHT_CYAN}{event_type}{C.RESET} {C.DIM}{extra_str}{C.RESET}", session=_short_session(session_id))
+        self._log(
+            "sse", f"→ {C.BRIGHT_CYAN}{event_type}{C.RESET} {C.DIM}{extra_str}{C.RESET}",
+            session=_short_session(session_id),
+        )
 
     # ── Domain: Routes ────────────────────────────────────────
 
@@ -277,7 +309,10 @@ class AILogger:
     def session_chat_start(self, session_id, question, agent_mode):
         """Log the start of a chat interaction in a session."""
         self.header(f"💬 CHAT — Session {_short_session(session_id)}")
-        self._log("session", f"Question: {C.BRIGHT_WHITE}{_truncate(question, 150)}{C.RESET}", session=_short_session(session_id), agent_mode=agent_mode)
+        self._log(
+            "session", f"Question: {C.BRIGHT_WHITE}{_truncate(question, 150)}{C.RESET}",
+            session=_short_session(session_id), agent_mode=agent_mode,
+        )
 
     # ── Domain: DB ────────────────────────────────────────────
 
@@ -311,7 +346,7 @@ class AILogger:
             return f"(pattern='{args.get('pattern', '')}')"
         elif tool_name == "RUN_COMMAND":
             return f"({args.get('command', '')})"
-        elif tool_name == "RUN_TESTS" or tool_name == "LINT_CODE":
+        elif tool_name in {"RUN_TESTS", "LINT_CODE"}:
             cmd = args.get('command', '')
             return f"({cmd})" if cmd else "(auto-detect)"
         elif tool_name == "GIT_DIFF":

@@ -56,12 +56,14 @@ def init_project():
 
     # Local path flow
     if not os.path.exists(local_path):
-        error_msg = f"Thư mục không tồn tại: {local_path}" if ui_language == 'vi' else f"Directory does not exist: {local_path}"
+        error_msg = (f"Thư mục không tồn tại: {local_path}" if ui_language == 'vi'
+                     else f"Directory does not exist: {local_path}")
         raise InvalidRequestError(error_msg)
     if not os.path.isdir(local_path):
-        error_msg = f"Đường dẫn không phải là thư mục: {local_path}" if ui_language == 'vi' else f"Path is not a directory: {local_path}"
+        error_msg = (f"Đường dẫn không phải là thư mục: {local_path}" if ui_language == 'vi'
+                     else f"Path is not a directory: {local_path}")
         raise InvalidRequestError(error_msg)
-        
+
     try:
         tree, stats = scan_directory_and_stats(local_path, local_path)
         log.info("Project scanned", files=stats.get("total_files", 0), size=stats.get("total_size", 0))
@@ -167,25 +169,25 @@ def get_project_file(session_id):
     session = ProjectSessionRepository.get_by_id(session_id)
     if not session:
         raise SessionNotFoundError()
-        
+
     rel_path = request.args.get('path', '').strip()
     if not rel_path:
         raise InvalidRequestError("File path is required")
     if '..' in rel_path or rel_path.startswith('/'):
         raise InvalidRequestError("Invalid file path")
-        
+
     filepath = os.path.join(session.project_path, rel_path)
     if not os.path.exists(filepath):
         return jsonify({"error": "File not found"}), 404
-        
+
     if os.path.isdir(filepath):
         return jsonify({"error": "Path is a directory, not a file"}), 400
-        
+
     try:
         # Read text content safely
-        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+        with open(filepath, encoding='utf-8', errors='replace') as f:
             content = f.read()
-            
+
         return jsonify({
             "path": rel_path,
             "name": os.path.basename(rel_path),
@@ -199,16 +201,16 @@ def write_project_file(session_id):
     session = ProjectSessionRepository.get_by_id(session_id)
     if not session:
         raise SessionNotFoundError()
-        
+
     data = request.json or {}
     rel_path = data.get('path', '').strip()
     content = data.get('content', '')
-    
+
     if not rel_path:
         raise InvalidRequestError("File path is required")
     if '..' in rel_path or rel_path.startswith('/'):
         raise InvalidRequestError("Invalid file path")
-        
+
     filepath = os.path.join(session.project_path, rel_path)
     try:
         # Create directories if writing a new file
@@ -270,7 +272,8 @@ def chat_project(session_id):
     if context_files:
         context_str_parts = [
             "\nADDITIONAL CONTEXT FILES SELECTED BY USER:",
-            "CRITICAL: The content of these files is ALREADY provided below. Do NOT output or repeat the code of these files in your response."
+            ("CRITICAL: The content of these files is ALREADY provided below. "
+             "Do NOT output or repeat the code of these files in your response.")
         ]
         loaded_files = 0
         for rel_path in context_files:
@@ -279,7 +282,7 @@ def chat_project(session_id):
             filepath = os.path.join(project_path, rel_path)
             if os.path.exists(filepath) and os.path.isfile(filepath):
                 try:
-                    with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                    with open(filepath, encoding='utf-8', errors='replace') as f:
                         content = f.read()
                     if len(content) > 15000:
                         content = content[:15000] + "\n\n...[content truncated to save context]..."

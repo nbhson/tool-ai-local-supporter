@@ -54,9 +54,9 @@ def call_ollama(messages, model=None, stream=False):
             log.debug(f"Ollama responded {response.status_code} in {req_ms:.0f}ms")
 
             if stream:
-                def generate():
+                def generate(resp):
                     chunk_count = 0
-                    for line in response.iter_lines():
+                    for line in resp.iter_lines():
                         if line:
                             try:
                                 chunk = json.loads(line.decode('utf-8'))
@@ -68,7 +68,7 @@ def call_ollama(messages, model=None, stream=False):
                                 log.warning(f"Error parsing Ollama chunk: {e}")
                     log.debug(f"Stream complete: {chunk_count} chunks received")
                     yield "data: [DONE]\n\n"
-                return generate()
+                return generate(response)
             else:
                 return response.json()
         except requests.exceptions.ConnectionError:
@@ -87,42 +87,5 @@ def call_ollama(messages, model=None, stream=False):
             log.error(f"Unexpected error in call_ollama: {e}")
             err_msg = f"Ollama error: {e!s}"
             return generate_error(err_msg) if stream else {"error": err_msg}
-
-
-def analyze_with_ollama(text, filename, model=None, content_type="document", language="en"):
-    """Send text content to Ollama for initial analysis."""
-    model = model or config.DEFAULT_MODEL
-    max_chars = config.MAX_TEXT_CHARS
-    if len(text) > max_chars:
-        text = text[:max_chars] + "\n\n...[truncated]"
-
-
-    # Determine language instruction
-    lang_instruction = "Respond in English." if language == "en" else "Respond in Vietnamese."
-
-    if content_type == "code":
-        system_prompt = f"""You are a code analysis assistant. Analyze the provided code and provide:
-1. The programming language and overall purpose
-2. Key components (functions, classes, modules)
-3. Notable patterns, potential issues, or improvements
-4. How the code works at a high level
-Be technical and precise. {lang_instruction}"""
-        user_prompt = f"""Please analyze this code (filename: {filename}):
----
-{text}
----"""
-    else:
-        system_prompt = f"""You are a document analysis assistant. Analyze the document and extract key information.
-Summarize and highlight important points, data, and insights. {lang_instruction}"""
-        user_prompt = f"""Please analyze this document (filename: {filename}):
----
-{text}
----"""
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ]
-    return call_ollama(messages, model)
 
 

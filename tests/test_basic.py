@@ -73,7 +73,7 @@ def test_helper_service():
     from services.helper_service import format_sse_event, get_lang_instruction
     assert get_lang_instruction("en") == "Respond in English."
     assert get_lang_instruction("vi") == "Respond in Vietnamese."
-    
+
     sse_str = format_sse_event("test_event", val="hello")
     assert "data: " in sse_str
     assert "test_event" in sse_str
@@ -83,7 +83,7 @@ def test_agent_tools():
     from services.agent_tool_service import ToolRegistry
     # Test unknown tool
     assert "Error: Unknown tool" in ToolRegistry.execute_tool("UNKNOWN_TOOL", {}, ".")
-    
+
     # Test READ_FILE error case
     assert "Error: File not found" in ToolRegistry.execute_tool("READ_FILE", {"path": "non_existent.txt"}, ".")
 
@@ -92,15 +92,16 @@ def test_safe_join_project_path():
 
     from services.helper_service import safe_join_project_path
     base = os.path.abspath(".")
-    
+
     # Valid join
     assert safe_join_project_path(base, "app.py") == os.path.join(base, "app.py")
-    assert safe_join_project_path(base, "services/helper_service.py") == os.path.join(base, "services/helper_service.py")
-    
+    assert safe_join_project_path(base, "services/helper_service.py") == os.path.join(
+        base, "services/helper_service.py")
+
     # Invalid joins (path traversal)
     with pytest.raises(ValueError):
         safe_join_project_path(base, "../outside.txt")
-        
+
     with pytest.raises(ValueError):
         safe_join_project_path(base, "/etc/passwd")
 
@@ -111,22 +112,22 @@ def test_project_tree_cache():
         set_cached_project_tree,
     )
     session_id = "test_session_123"
-    
+
     # Initially cache should be empty
     tree, stats = get_cached_project_tree(session_id)
     assert tree is None
     assert stats is None
-    
+
     # Store in cache
     dummy_tree = [{"name": "file.py", "is_dir": False}]
     dummy_stats = {"total_files": 1, "total_size": 100, "lang_stats": {"py": 1}}
     set_cached_project_tree(session_id, dummy_tree, dummy_stats)
-    
+
     # Retrieve from cache
     cached_tree, cached_stats = get_cached_project_tree(session_id)
     assert cached_tree == dummy_tree
     assert cached_stats == dummy_stats
-    
+
     # Invalidate cache
     invalidate_project_tree_cache(session_id)
     cached_tree, cached_stats = get_cached_project_tree(session_id)

@@ -7,7 +7,7 @@ from services.database import db
 
 class DocumentSession(db.Model):
     __tablename__ = 'document_sessions'
-    
+
     session_id = db.Column(db.String(36), primary_key=True)
     filename = db.Column(db.String(255), nullable=False)
     filepath = db.Column(db.String(512), nullable=False)
@@ -25,7 +25,7 @@ class DocumentSession(db.Model):
 
 class DocumentFile(db.Model):
     __tablename__ = 'document_files'
-    
+
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     session_id = db.Column(db.String(36), db.ForeignKey('document_sessions.session_id'), nullable=False)
     filename = db.Column(db.String(255), nullable=False)
@@ -40,7 +40,7 @@ class DocumentFile(db.Model):
 
 class ChatSession(db.Model):
     __tablename__ = 'chat_sessions'
-    
+
     session_id = db.Column(db.String(36), primary_key=True)
     model = db.Column(db.String(100), nullable=False)
     ui_language = db.Column(db.String(10), default='en')
@@ -49,7 +49,7 @@ class ChatSession(db.Model):
 
 class ProjectSession(db.Model):
     __tablename__ = 'project_sessions'
-    
+
     session_id = db.Column(db.String(36), primary_key=True)
     project_path = db.Column(db.String(512), nullable=True)  # Absolute local path (if any)
     is_local = db.Column(db.Boolean, default=False)          # True if workspace opened directly from local drive
@@ -61,7 +61,7 @@ class ProjectSession(db.Model):
 
 class ChatMessage(db.Model):
     __tablename__ = 'chat_messages'
-    
+
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     session_id = db.Column(db.String(36), index=True, nullable=False)
     role = db.Column(db.String(20), nullable=False)           # 'system', 'user', 'assistant'

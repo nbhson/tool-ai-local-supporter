@@ -7,6 +7,9 @@ import time
 from PIL import Image
 
 import config
+from services.extractor_service import ExtractorFactory
+
+logger = logging.getLogger(__name__)
 
 
 def allowed_file(filename):
@@ -16,8 +19,6 @@ def allowed_file(filename):
 def is_image_file(filepath):
     ext = filepath.rsplit('.', 1)[1].lower() if '.' in filepath else ''
     return ext in config.IMAGE_EXTENSIONS
-
-from services.extractor_service import ExtractorFactory
 
 
 def extract_text_from_image_ocr(filepath):
@@ -52,15 +53,16 @@ def resize_and_compress_image(filepath, max_size=None, quality=None):
     if quality is None:
         quality = config.IMAGE_COMPRESS_QUALITY
     try:
-        with Image.open(filepath) as img:
-            img.thumbnail(max_size, Image.Resampling.LANCZOS)
-            if img.mode in ('RGBA', 'P'): 
+        with Image.open(filepath) as source_img:
+            img = source_img
+            if img.mode in ('RGBA', 'P'):
                 img = img.convert('RGB')
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
             buffer = io.BytesIO()
             img.save(buffer, format="JPEG", quality=quality)
             return base64.b64encode(buffer.getvalue()).decode('utf-8')
     except Exception as e:
-        logging.exception(f"Error compressing image: {e}")
+        logger.exception(f"Error compressing image: {e}")
         return None
 
 def cleanup_old_uploads(upload_dir):
@@ -68,10 +70,11 @@ def cleanup_old_uploads(upload_dir):
         now = time.time()
         for filename in os.listdir(upload_dir):
             filepath = os.path.join(upload_dir, filename)
-            if os.path.isfile(filepath):
-                if os.stat(filepath).st_mtime < now - config.CLEANUP_EXPIRE_SECONDS:
-                    os.remove(filepath)
-                    logging.info(f"Cleaned up old file: {filename}")
+            is_old_file = os.path.isfile(filepath) and \
+                os.stat(filepath).st_mtime < now - config.CLEANUP_EXPIRE_SECONDS
+            if is_old_file:
+                os.remove(filepath)
+                logger.info(f"Cleaned up old file: {filename}")
     except Exception as e:
-        logging.error(f"Error in cleanup: {e}")
+        logger.error(f"Error in cleanup: {e}")
 

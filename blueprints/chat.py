@@ -1,4 +1,3 @@
-import json
 import uuid
 
 from flask import Blueprint, Response, jsonify, request
@@ -6,6 +5,7 @@ from flask import Blueprint, Response, jsonify, request
 import config
 from services.helper_service import (
     get_lang_instruction,
+    parse_ollama_sse_chunk,
     retrieve_chat_history,
     save_chat_message,
 )
@@ -98,15 +98,9 @@ def chat_free():
             generator = call_ollama(messages, model, stream=True)
             full_answer = ""
             for chunk in generator:
-                if chunk.startswith("data: "):
-                    data_str = chunk[6:].strip()
-                    if data_str != "[DONE]":
-                        try:
-                            data_json = json.loads(data_str)
-                            if "content" in data_json:
-                                full_answer += data_json["content"]
-                        except:
-                            pass
+                payload = parse_ollama_sse_chunk(chunk)
+                if payload and "content" in payload:
+                    full_answer += payload["content"]
                 yield chunk
 
             ollama_ms = (time.time() - ollama_start) * 1000

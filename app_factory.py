@@ -28,10 +28,10 @@ def create_app():
     app.config['CELERY_RESULT_BACKEND'] = config.CELERY_RESULT_BACKEND
 
     db.init_app(app)
-    
+
     # Import models so SQLAlchemy metadata knows about them before create_all()
     import services.models  # noqa: F401
-    
+
     # Enable WAL mode for SQLite to prevent "database is locked" errors under concurrent write loads.
     # Using a flag to ensure PRAGMA is set only once per process, not on every connection.
     _sqlite_pragma_set = False
@@ -47,21 +47,21 @@ def create_app():
                 cursor.execute("PRAGMA synchronous=NORMAL")
                 cursor.close()
                 _sqlite_pragma_set = True
-    
+
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    
+
     with app.app_context():
         db.create_all()
-        
+
     # Import and register blueprints inside to prevent circular dependency
     from blueprints.chat import chat_bp
     from blueprints.doc import doc_bp
     from blueprints.project import project_bp
-    
+
     app.register_blueprint(doc_bp, url_prefix='/api/doc')
     app.register_blueprint(chat_bp, url_prefix='/api/chat')
     app.register_blueprint(project_bp, url_prefix='/api/project')
-    
+
     from services.errors import AppError
     @app.errorhandler(AppError)
     def handle_app_error(error):
@@ -88,5 +88,5 @@ def create_app():
             except Exception:
                 return jsonify({"models": [config.DEFAULT_MODEL]})
         return jsonify({"models": _cached_models})
-            
+
     return app

@@ -2,6 +2,7 @@ import os
 import re
 import shlex
 import subprocess
+from typing import ClassVar
 
 import config
 from services.helper_service import safe_join_project_path
@@ -53,6 +54,29 @@ def _parse_allowed_command(command: str):
     return tokens, None
 
 
+def _run_subprocess(argv, cwd, timeout, timeout_message, error_prefix, max_output=15000):
+    """Run a validated argv list with common capture/truncation handling.
+
+    Returns a formatted result string containing exit code, stdout and stderr,
+    truncating combined output to `max_output` characters.
+    """
+    try:
+        res = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        output = f"Exit code: {res.returncode}\n"
+        if res.stdout:
+            output += f"STDOUT:\n{res.stdout}\n"
+        if res.stderr:
+            output += f"STDERR:\n{res.stderr}\n"
+        output = output.strip()
+        if len(output) > max_output:
+            output = output[:max_output] + "\n...[output truncated]"
+        return output
+    except subprocess.TimeoutExpired:
+        return f"Error: {timeout_message}"
+    except Exception as e:
+        return f"Error {error_prefix}: {e!s}"
+
+
 class BaseAgentTool:
     def execute(self, args: dict, project_path: str) -> str:
         raise NotImplementedError("Each tool must implement execute")
@@ -69,7 +93,7 @@ class ReadFileTool(BaseAgentTool):
         if os.path.isdir(filepath):
             return f"Error: {path} is a directory. Use LIST_DIR instead."
         try:
-            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            with open(filepath, encoding='utf-8', errors='replace') as f:
                 content = f.read()
             return f"--- Content of {path} ---\n{content}\n----------------"
         except Exception as e:
@@ -131,14 +155,14 @@ class SearchFilesTool(BaseAgentTool):
                     if os.path.getsize(filepath) > 500000: # Skip files larger than 500KB
                         continue
                     try:
-                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as file_obj:
+                        with open(filepath, encoding='utf-8', errors='ignore') as file_obj:
                             content = file_obj.read()
                             if query_lower in content.lower():
                                 lines = content.split('\n')
                                 for idx, line in enumerate(lines):
                                     if query_lower in line.lower():
                                         results.append(f"{rel_path}:{idx+1}: {line.strip()[:120]}")
-                    except:
+                    except Exception:
                         pass
             return "\n".join(results[:50]) if results else "No matches found"
         except Exception as e:
@@ -152,24 +176,11 @@ class RunCommandTool(BaseAgentTool):
         argv, error = _parse_allowed_command(command)
         if error:
             return error
-        try:
-            res = subprocess.run(
-                argv,
-                cwd=project_path,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            output = f"Exit code: {res.returncode}\n"
-            if res.stdout:
-                output += f"STDOUT:\n{res.stdout}\n"
-            if res.stderr:
-                output += f"STDERR:\n{res.stderr}\n"
-            return output
-        except subprocess.TimeoutExpired:
-            return "Error: Command timed out after 30 seconds."
-        except Exception as e:
-            return f"Error executing command: {e!s}"
+        return _run_subprocess(
+            argv, project_path, config.TOOL_COMMAND_TIMEOUT,
+            f"Command timed out after {config.TOOL_COMMAND_TIMEOUT} seconds.",
+            "executing command",
+        )
 
 class FinishTool(BaseAgentTool):
     def execute(self, args: dict, project_path: str) -> str:
@@ -192,13 +203,15 @@ class EditFileTool(BaseAgentTool):
         if not os.path.exists(filepath):
             return f"Error: File not found: {path}"
         try:
-            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            with open(filepath, encoding='utf-8', errors='replace') as f:
                 content = f.read()
             if search not in content:
-                return f"Error: Search string not found in {path}. The content may have changed — try reading the file first."
+                return (f"Error: Search string not found in {path}. "
+                        f"The content may have changed — try reading the file first.")
             count = content.count(search)
             if count > 1:
-                return f"Error: Search string found {count} times in {path}. Provide a more unique search string (include surrounding lines)."
+                return (f"Error: Search string found {count} times in {path}. "
+                        f"Provide a more unique search string (include surrounding lines).")
             new_content = content.replace(search, replace, 1)
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(new_content)
@@ -216,7 +229,9 @@ class GitDiffTool(BaseAgentTool):
             if file_path:
                 cmd.append('--')
                 cmd.append(file_path)
-            res = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, timeout=15)
+            res = subprocess.run(
+                cmd, cwd=project_path, capture_output=True, text=True, timeout=config.TOOL_GIT_TIMEOUT
+            )
             output = res.stdout.strip()
             if not output:
                 return "No unstaged changes found."
@@ -239,7 +254,7 @@ class GitLogTool(BaseAgentTool):
             n = min(n, 50)
             res = subprocess.run(
                 ['git', 'log', f'-{n}', '--oneline', '--no-decorate'],
-                cwd=project_path, capture_output=True, text=True, timeout=15
+                cwd=project_path, capture_output=True, text=True, timeout=config.TOOL_GIT_TIMEOUT
             )
             output = res.stdout.strip()
             return output if output else "No commits found."
@@ -278,7 +293,7 @@ class RunTestsTool(BaseAgentTool):
             pkg_path = os.path.join(project_path, 'package.json')
             try:
                 import json as _json
-                with open(pkg_path, 'r') as f:
+                with open(pkg_path) as f:
                     pkg = _json.load(f)
                 scripts = pkg.get('scripts', {})
                 test_cmd = 'npm test' if 'test' in scripts else None
@@ -300,37 +315,26 @@ class RunTestsTool(BaseAgentTool):
         # Makefile
         if os.path.exists(os.path.join(project_path, 'Makefile')):
             try:
-                with open(os.path.join(project_path, 'Makefile'), 'r') as f:
+                with open(os.path.join(project_path, 'Makefile')) as f:
                     content = f.read()
                 if 'test:' in content:
                     return self._run_cmd('make test', project_path)
             except Exception:
                 pass
 
-        return "Error: Could not auto-detect test framework. Please specify a custom test command with [RUN_TESTS: your-command]."
+        return ("Error: Could not auto-detect test framework. "
+                "Please specify a custom test command with [RUN_TESTS: your-command].")
 
     @staticmethod
     def _run_cmd(command, project_path):
         argv, error = _parse_allowed_command(command)
         if error:
             return error
-        try:
-            res = subprocess.run(
-                argv, cwd=project_path,
-                capture_output=True, text=True, timeout=60
-            )
-            output = f"Exit code: {res.returncode}\n"
-            if res.stdout:
-                output += f"STDOUT:\n{res.stdout}\n"
-            if res.stderr:
-                output += f"STDERR:\n{res.stderr}\n"
-            if len(output) > 15000:
-                output = output[:15000] + "\n...[output truncated]"
-            return output
-        except subprocess.TimeoutExpired:
-            return "Error: Tests timed out after 60 seconds."
-        except Exception as e:
-            return f"Error running tests: {e!s}"
+        return _run_subprocess(
+            argv, project_path, config.TOOL_TEST_TIMEOUT,
+            f"Tests timed out after {config.TOOL_TEST_TIMEOUT} seconds.",
+            "running tests",
+        )
 
 
 class LintCodeTool(BaseAgentTool):
@@ -356,31 +360,19 @@ class LintCodeTool(BaseAgentTool):
         if py_files:
             return self._run_lint_cmd('python -m ruff check --output-format=text', project_path)
 
-        return "Error: Could not auto-detect linter. Please specify a custom lint command with [LINT_CODE: your-command]."
+        return ("Error: Could not auto-detect linter. "
+                "Please specify a custom lint command with [LINT_CODE: your-command].")
 
     @staticmethod
     def _run_lint_cmd(command, project_path):
         argv, error = _parse_allowed_command(command)
         if error:
             return error
-        try:
-            res = subprocess.run(
-                argv, cwd=project_path,
-                capture_output=True, text=True, timeout=60
-            )
-            output = ""
-            if res.stdout:
-                output += res.stdout
-            if res.stderr:
-                output += f"\nSTDERR:\n{res.stderr}"
-            output = f"Exit code: {res.returncode}\n{output.strip()}"
-            if len(output) > 15000:
-                output = output[:15000] + "\n...[output truncated]"
-            return output
-        except subprocess.TimeoutExpired:
-            return "Error: Linting timed out after 60 seconds."
-        except Exception as e:
-            return f"Error running linter: {e!s}"
+        return _run_subprocess(
+            argv, project_path, config.TOOL_LINT_TIMEOUT,
+            f"Linting timed out after {config.TOOL_LINT_TIMEOUT} seconds.",
+            "running linter",
+        )
 
 
 class RegexSearchTool(BaseAgentTool):
@@ -409,7 +401,7 @@ class RegexSearchTool(BaseAgentTool):
                     if os.path.getsize(filepath) > 500000:
                         continue
                     try:
-                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as fh:
+                        with open(filepath, encoding='utf-8', errors='ignore') as fh:
                             for idx, line in enumerate(fh, 1):
                                 if compiled.search(line):
                                     results.append(f"{rel_path}:{idx}: {line.strip()[:120]}")
@@ -425,7 +417,7 @@ class RegexSearchTool(BaseAgentTool):
 
 
 class ToolRegistry:
-    _tools = {
+    _tools: ClassVar[dict] = {
         'READ_FILE': ReadFileTool(),
         'WRITE_FILE': WriteFileTool(),
         'EDIT_FILE': EditFileTool(),

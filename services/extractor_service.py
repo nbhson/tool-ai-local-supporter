@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import docx
 import pypdf
 import pytesseract
@@ -10,7 +12,7 @@ class BaseExtractor:
 
 class PlainTextExtractor(BaseExtractor):
     def extract(self, filepath: str) -> str:
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(filepath, encoding='utf-8', errors='ignore') as f:
             return f.read()
 
 class PdfExtractor(BaseExtractor):
@@ -37,7 +39,7 @@ class ImageOcrExtractor(BaseExtractor):
             return f"OCR Error: {e!s}"
 
 class ExtractorFactory:
-    _extractors = {
+    _extractors: ClassVar[dict] = {
         'txt': PlainTextExtractor(),
         'md': PlainTextExtractor(),
         'csv': PlainTextExtractor(),

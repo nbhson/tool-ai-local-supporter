@@ -10,7 +10,7 @@ ALLOWED_EXTENSIONS = {
 # Ollama configuration
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api")
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen2.5-coder:14b")
-OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", 8192))
+OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
 
 IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff', 'tif', 'webp'}
 VISION_MODELS = {'qwen2.5-vl', 'qwen2.5vl', 'llava', 'bakllava', 'moondream', 'cog-vlm'}
@@ -59,7 +59,7 @@ CHAT_HISTORY_SUMMARY_THRESHOLD = 6  # Summarize when history exceeds this
 MAX_TEXT_CHARS = 15000
 
 EXCLUDE_DIRS = {
-    '.git', 'node_modules', '.venv', 'venv', 'env', '.idea', '__pycache__', 
+    '.git', 'node_modules', '.venv', 'venv', 'env', '.idea', '__pycache__',
     'dist', 'build', 'target', '.npm', '.cache', '.angular', '.next', '.nuxt',
     '.sass-cache', '.svelte-kit', '.agents', '.gemini', 'coverage', '.nyc_output',
     '.pytest_cache', '.vscode', '.tox'

@@ -1,0 +1,53 @@
+[project]
+name = "ai-local-support"
+version = "1.0.0"
+description = "WebUI phân tích tài liệu và code sử dụng Ollama (AI local)"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv", "chroma_db", "instance", "uploads", "plan"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "UP",  # pyupgrade
+    "RUF", # ruff-specific
+    "PL",  # pylint
+    "DTZ", # datetime timezone
+    "PIE", # flake8-pie
+    "LOG", # logging
+]
+ignore = [
+    "BLE001",  # blind except: tools/API boundaries intentionally convert any error into a string/JSON response
+    "PLC0415", # deferred imports are intentional (avoid circular deps / lazy heavy deps)
+    "PLR0911", # too many return statements
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments
+    "PLR0915", # too many statements
+    "PLR0917", # too many positional arguments
+    "PLR2004", # magic values (config constants are the project's pattern)
+    "PLW0603", # module-level caches use global statement intentionally
+    "PLW1510", # subprocess without check=True: return code is inspected manually
+    "S110",    # try-except-pass: best-effort scanning of user files
+    "TRY003",  # long exception messages are intentional (bilingual user-facing errors)
+    "TRY300",  # return in try block is the happy path here
+]
+
+[tool.ruff.lint.per-file-ignores]
+# celery_app.py adjusts sys.path before importing project modules
+"celery_app.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:chromadb.*",
+]

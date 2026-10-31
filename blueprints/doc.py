@@ -1,4 +1,3 @@
-import json
 import os
 import threading
 import time
@@ -18,6 +17,7 @@ import config
 from services.document_service import allowed_file, cleanup_old_uploads, is_image_file
 from services.helper_service import (
     get_lang_instruction,
+    parse_ollama_sse_chunk,
     retrieve_chat_history,
     save_chat_message,
 )
@@ -43,25 +43,25 @@ def upload_document():
         if now - _last_cleanup_time > 300:
             _last_cleanup_time = now
             threading.Thread(target=cleanup_old_uploads, args=(upload_dir,), daemon=True).start()
-    
+
     # Support both list of files and single file
     uploaded_files = []
     if 'files' in request.files:
         uploaded_files = request.files.getlist('files')
     elif 'file' in request.files:
         uploaded_files = request.files.getlist('file')
-        
+
     uploaded_files = [f for f in uploaded_files if f.filename != '']
-    
+
     if not uploaded_files:
         return jsonify({"error": "No file provided"}), 400
-        
+
     if len(uploaded_files) > 3:
         return jsonify({"error": "Tối đa 3 files được phép tải lên"}), 400
 
     model = request.form.get('model', config.DEFAULT_MODEL)
     language = request.form.get('language', 'en')  # Default to English
-    
+
     # Validate allowed extensions for all files first
     for file in uploaded_files:
         if not allowed_file(file.filename):
@@ -78,7 +78,7 @@ def upload_document():
 
         is_image = is_image_file(filepath)
         file_type = "image" if is_image else "document"
-        
+
         saved_files.append({
             "filename": filename,
             "filepath": filepath,
@@ -176,7 +176,7 @@ def chat_document():
     session_id = data.get('session_id')
     question = data.get('question', '').strip()
     language = data.get('language', 'en')
-    
+
     session = DocumentSessionRepository.get_by_id(session_id)
     if not session:
         return jsonify({"error": "Session not found. Upload a file first."}), 400
@@ -198,8 +198,9 @@ def chat_document():
     if use_vision:
         # Perform RAG retrieval for context alongside image details
         context = retrieve_context(session_id, question, top_k=config.RAG_TOP_K)
-        
-        system_prompt = f"""You are a document analysis assistant. Answer the user question based on the provided context and images.
+
+        system_prompt = f"""You are a document analysis assistant. Answer the user question based on
+the provided context and images.
 If the answer cannot be found in the context or images, say "I cannot find the answer in the document."
 
 Context from document:
@@ -207,9 +208,9 @@ Context from document:
 
 {lang_instruction}"""
         messages = [{"role": "system", "content": system_prompt}]
-        
+
         messages.extend(retrieve_chat_history(session_id, config.CHAT_HISTORY_LIMIT, skip_first=True))
-            
+
         messages.append({
             "role": "user",
             "content": question,
@@ -218,19 +219,15 @@ Context from document:
     else:
         # Perform RAG retrieval for documents or image-with-OCR fallback
         context = retrieve_context(session_id, question, top_k=config.RAG_TOP_K)
-        
-        system_prompt = f"""You are a document analysis assistant. Answer the user question based ONLY on the provided context.
+
+        system_prompt = f"""You are a document analysis assistant. Answer the user question based ONLY
+on the provided context.
 If the answer cannot be found in the context, say "I cannot find the answer in the document."
 
 Context from document:
 {context}
 
 {lang_instruction}"""
-        messages = [{"role": "system", "content": system_prompt}]
-        
-        messages.extend(retrieve_chat_history(session_id, config.CHAT_HISTORY_LIMIT, skip_first=True))
-            
-        messages.append({"role": "user", "content": question})
 
     # Save user message to database
     save_chat_message(session_id, 'user', question)
@@ -241,17 +238,11 @@ Context from document:
             generator = call_ollama(messages, model, stream=True)
             full_answer = ""
             for chunk in generator:
-                if chunk.startswith("data: "):
-                    data_str = chunk[6:].strip()
-                    if data_str != "[DONE]":
-                        try:
-                            data_json = json.loads(data_str)
-                            if "content" in data_json:
-                                full_answer += data_json["content"]
-                        except:
-                            pass
+                payload = parse_ollama_sse_chunk(chunk)
+                if payload and "content" in payload:
+                    full_answer += payload["content"]
                 yield chunk
-            
+
             # Save assistant response to DB
             save_chat_message(session_id, 'assistant', full_answer)
 
@@ -262,7 +253,7 @@ def clear_doc_session(session_id):
     session = DocumentSessionRepository.get_by_id(session_id)
     if not session:
         return jsonify({"error": "Session not found"}), 404
-        
+
     # Reset conversation history but keep the first message (greeting)
     messages = ChatMessageRepository.get_messages_by_session_id(session_id)
     if messages:

@@ -173,9 +173,9 @@ def test_doc_upload_rejects_more_than_three_files(client):
 
 def test_project_upload_rejects_traversal_path(client):
     """Ensure a path containing '../' is rejected, not written outside the project dir."""
+    from services.database import db as _db
     from services.models import ProjectSession
     from services.repositories import ProjectSessionRepository
-    from services.database import db as _db
 
     # Create a placeholder session (delete first to keep the test idempotent —
     # the app DB persists between runs, so a leftover row must not break setup)

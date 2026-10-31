@@ -5,14 +5,25 @@ import re
 import time
 
 import config
+from services.agent_tool_service import ToolRegistry
 from services.helper_service import (
     format_sse_event,
     get_lang_instruction,
+    parse_ollama_sse_chunk,
     retrieve_chat_history,
     save_chat_message,
 )
 from services.logger import log
 from services.ollama_service import call_ollama
+
+logger = logging.getLogger(__name__)
+
+# Regex matching the start of any tool call tag (used to delimit WRITE_FILE /
+# EDIT_FILE payloads embedded in the assistant response).
+_TOOL_TAG_PATTERN = re.compile(
+    r'\[(?:READ_FILE|WRITE_FILE|LIST_DIR|SEARCH_FILES|RUN_COMMAND|EDIT_FILE|'
+    r'GIT_DIFF|GIT_LOG|RUN_TESTS|LINT_CODE|REGEX_SEARCH|FINISH):'
+)
 
 # In-memory cache for project tree with TTL (prevents unbounded memory growth)
 # Format: session_id -> {"tree": tree, "stats": stats, "timestamp": float}
@@ -77,16 +88,17 @@ def scan_directory_and_stats(current_path, base_path, stats=None, current_depth=
                     size = entry.stat().st_size
                     stats["total_size"] += size
                     stats["total_files"] += 1
-                    
+
                     _, ext = os.path.splitext(entry.name)
                     ext = ext.lower().strip('.')
                     if not ext:
-                        ext = 'plain text' if entry.name.startswith('.') or entry.name in ('LICENSE', 'Makefile', 'Dockerfile') else 'unknown'
+                        known_no_ext = entry.name.startswith('.') or entry.name in ('LICENSE', 'Makefile', 'Dockerfile')
+                        ext = 'plain text' if known_no_ext else 'unknown'
                     stats["lang_stats"][ext] = stats["lang_stats"].get(ext, 0) + 1
                 except Exception:
                     pass
     except Exception as e:
-        logging.error(f"Error scanning directory {current_path}: {e}")
+        logger.error(f"Error scanning directory {current_path}: {e}")
     return tree, stats
 
 def _compute_file_importance(node, base_importance=0):
@@ -103,7 +115,7 @@ def _compute_file_importance(node, base_importance=0):
     if any(name.endswith(ext) for ext in ('.py', '.js', '.ts', '.tsx', '.jsx', '.go', '.rs', '.java', '.rb', '.php')):
         score += 2
     # Test files (lower priority in overview)
-    if name.startswith('test_') or name.endswith('_test.py') or name.endswith('.test.js') or name.endswith('.test.ts'):
+    if name.startswith('test_') or name.endswith(('_test.py', '.test.js', '.test.ts')):
         score -= 1
     return score
 
@@ -115,16 +127,17 @@ def get_simple_tree_str(nodes, depth=0, max_depth=None, max_entries_per_dir=None
         max_entries_per_dir = config.AGENT_MAX_ENTRIES_PER_DIR
     if depth > max_depth:
         return []
-    
+
     # Sort: directories first, then by importance score (descending)
     sorted_nodes = sorted(nodes, key=lambda n: (not n.get('is_dir', False), -_compute_file_importance(n)))
-    
+
     lines = []
     for i, node in enumerate(sorted_nodes):
         if i >= max_entries_per_dir:
-            lines.append(f"{'  ' * depth}... (and {len(sorted_nodes) - max_entries_per_dir} more items, use LIST_DIR tool to view)")
+            remaining = len(sorted_nodes) - max_entries_per_dir
+            lines.append(f"{'  ' * depth}... (and {remaining} more items, use LIST_DIR tool to view)")
             break
-            
+
         indent = "  " * depth
         if node.get("is_dir"):
             lines.append(f"{indent}📁 {node['name']}/")
@@ -132,6 +145,23 @@ def get_simple_tree_str(nodes, depth=0, max_depth=None, max_entries_per_dir=None
         else:
             lines.append(f"{indent}📄 {node['name']}")
     return lines
+
+def _next_tool_tag(text, start_pos):
+    """Find the next tool call tag in `text` at or after `start_pos`.
+
+    Returns (start, end) offsets of the tag, or (None, None) if none remains.
+    """
+    match = _TOOL_TAG_PATTERN.search(text, start_pos)
+    if match:
+        return match.start(), match.end()
+    return None, None
+
+def _segment_after_match(text, match):
+    """Extract the text segment following a tool tag match up to the next tool tag."""
+    start_pos = match.end()
+    next_start, _ = _next_tool_tag(text, start_pos)
+    end_pos = next_start if next_start is not None else len(text)
+    return text[start_pos:end_pos]
 
 def parse_all_tool_calls(text):
     """
@@ -143,39 +173,32 @@ def parse_all_tool_calls(text):
     # Parse [FINISH] if present (should not short-circuit other tool calls)
     if '[FINISH]' in text:
         tool_calls.append({'tool': 'FINISH', 'args': {}})
-    
+
     # Match simple tool tags: [TOOL: value]
     simple_pattern = r'\[(READ_FILE|LIST_DIR|SEARCH_FILES|RUN_COMMAND|GIT_DIFF|GIT_LOG|LINT_CODE):\s*([^\]\n]+)\]'
     simple_matches = list(re.finditer(simple_pattern, text))
-    
-    # Track positions that are already consumed by simple matches
-    consumed_ranges = [(m.start(), m.end()) for m in simple_matches]
-    
+
+    _SIMPLE_TOOL_ARGS = {
+        'READ_FILE': 'path',
+        'LIST_DIR': 'path',
+        'SEARCH_FILES': 'query',
+        'RUN_COMMAND': 'command',
+        'GIT_DIFF': 'path',
+        'GIT_LOG': 'count',
+        'LINT_CODE': 'command',
+    }
     for match in simple_matches:
         tool_name = match.group(1)
         arg_val = match.group(2).strip()
-        
-        if tool_name == 'READ_FILE':
-            tool_calls.append({'tool': 'READ_FILE', 'args': {'path': arg_val}})
-        elif tool_name == 'LIST_DIR':
-            tool_calls.append({'tool': 'LIST_DIR', 'args': {'path': arg_val}})
-        elif tool_name == 'SEARCH_FILES':
-            tool_calls.append({'tool': 'SEARCH_FILES', 'args': {'query': arg_val}})
-        elif tool_name == 'RUN_COMMAND':
-            tool_calls.append({'tool': 'RUN_COMMAND', 'args': {'command': arg_val}})
-        elif tool_name == 'GIT_DIFF':
-            tool_calls.append({'tool': 'GIT_DIFF', 'args': {'path': arg_val}})
-        elif tool_name == 'GIT_LOG':
-            tool_calls.append({'tool': 'GIT_LOG', 'args': {'count': arg_val}})
-        elif tool_name == 'LINT_CODE':
-            tool_calls.append({'tool': 'LINT_CODE', 'args': {'command': arg_val}})
-    
+        arg_key = _SIMPLE_TOOL_ARGS[tool_name]
+        tool_calls.append({'tool': tool_name, 'args': {arg_key: arg_val}})
+
     # Match [RUN_TESTS: command] (optional command)
     rt_pattern = r'\[RUN_TESTS:\s*([^\]\n]*)\]'
     for match in re.finditer(rt_pattern, text):
         cmd = match.group(1).strip()
         tool_calls.append({'tool': 'RUN_TESTS', 'args': {'command': cmd}})
-    
+
     # Match [REGEX_SEARCH: pattern] or [REGEX_SEARCH: pattern | file_pattern]
     rs_pattern = r'\[REGEX_SEARCH:\s*([^\]\n]+)\]'
     for match in re.finditer(rs_pattern, text):
@@ -185,47 +208,36 @@ def parse_all_tool_calls(text):
         if len(parts) > 1:
             args['file_pattern'] = parts[1]
         tool_calls.append({'tool': 'REGEX_SEARCH', 'args': args})
-    
+
     # Match [EDIT_FILE: path]
     # Requires: search string in <<<>>> delimiters, replace in <<<>>> delimiters
     ef_pattern = r'\[EDIT_FILE:\s*([^\]\n]+)\]'
-    all_matches_iter = list(re.finditer(ef_pattern, text))
-    for match in all_matches_iter:
+    for match in re.finditer(ef_pattern, text):
         file_path = match.group(1).strip()
-        # Extract content after this match until next tool tag or end of text
-        start_pos = match.end()
-        # Find the next tool tag
-        next_tag = re.search(r'\[(?:READ_FILE|WRITE_FILE|LIST_DIR|SEARCH_FILES|RUN_COMMAND|EDIT_FILE|GIT_DIFF|GIT_LOG|RUN_TESTS|LINT_CODE|REGEX_SEARCH|FINISH):', text[start_pos:])
-        end_pos = start_pos + next_tag.start() if next_tag else len(text)
-        segment = text[start_pos:end_pos]
-        
+        segment = _segment_after_match(text, match)
+
         search_match = re.search(r'<<<SEARCH>>>([\s\S]*?)<<<END_SEARCH>>>', segment)
         replace_match = re.search(r'<<<REPLACE>>>([\s\S]*?)<<<END_REPLACE>>>', segment)
-        
+
         search_str = search_match.group(1).strip() if search_match else ''
         replace_str = replace_match.group(1).strip() if replace_match else ''
-        
-        tool_calls.append({'tool': 'EDIT_FILE', 'args': {'path': file_path, 'search': search_str, 'replace': replace_str}})
-    
+
+        tool_calls.append({
+            'tool': 'EDIT_FILE',
+            'args': {'path': file_path, 'search': search_str, 'replace': replace_str},
+        })
+
     # Match [WRITE_FILE: path]
     wf_pattern = r'\[(WRITE_FILE):\s*([^\]\n]+)\]'
-    wf_matches = list(re.finditer(wf_pattern, text))
-    for match in wf_matches:
+    for match in re.finditer(wf_pattern, text):
         file_path = match.group(2).strip()
-        start_pos = match.end()
-        # Find next tool tag
-        next_tag = re.search(r'\[(?:READ_FILE|WRITE_FILE|LIST_DIR|SEARCH_FILES|RUN_COMMAND|EDIT_FILE|GIT_DIFF|GIT_LOG|RUN_TESTS|LINT_CODE|REGEX_SEARCH|FINISH):', text[start_pos:])
-        end_pos = start_pos + next_tag.start() if next_tag else len(text)
-        segment = text[start_pos:end_pos]
-        
+        segment = _segment_after_match(text, match)
+
         # Extract code block if present
         code_block = re.search(r'```(?:\w*)\n([\s\S]*?)```', segment)
-        if code_block:
-            content = code_block.group(1)
-        else:
-            content = segment.strip()
+        content = code_block.group(1) if code_block else segment.strip()
         tool_calls.append({'tool': 'WRITE_FILE', 'args': {'path': file_path, 'content': content}})
-            
+
     return tool_calls
 
 def parse_tool_call(text):
@@ -233,11 +245,33 @@ def parse_tool_call(text):
     calls = parse_all_tool_calls(text)
     return calls[0] if calls else None
 
-from services.agent_tool_service import ToolRegistry
-
 
 def execute_agent_tool(tool_name, args, project_path):
     return ToolRegistry.execute_tool(tool_name, args, project_path)
+
+def _finish_status(language):
+    """Localized status message shown when the agent loop completes."""
+    return 'Agent finished tasks successfully!' if language == 'en' \
+        else 'Agent hoàn thành công việc thành công!'
+
+_TOOL_STATUS_LABELS = {
+    'READ_FILE': ('Reading file: {detail}...', 'Đang đọc file: {detail}...'),
+    'WRITE_FILE': ('Writing file: {detail}...', 'Đang ghi file: {detail}...'),
+    'RUN_COMMAND': ('Running command: {detail}...', 'Đang chạy lệnh: {detail}...'),
+}
+_TOOL_STATUS_ARG_KEYS = {
+    'READ_FILE': 'path',
+    'WRITE_FILE': 'path',
+    'RUN_COMMAND': 'command',
+}
+
+def _tool_running_status(tool_name, tool_args, language):
+    """Localized status message shown while a tool is executing."""
+    if tool_name in _TOOL_STATUS_LABELS:
+        detail = tool_args.get(_TOOL_STATUS_ARG_KEYS[tool_name])
+        template = _TOOL_STATUS_LABELS[tool_name][0 if language == 'en' else 1]
+        return template.format(detail=detail)
+    return f"Running tool {tool_name}..." if language == 'en' else f"Đang chạy tool {tool_name}..."
 
 def generate_agent_stream(session_id, project_path, question, language, model, context_str, tree_str, agent_mode):
     """Executes the main ReAct software development agent loop, yielding SSE events."""
@@ -247,9 +281,10 @@ def generate_agent_stream(session_id, project_path, question, language, model, c
         log.info("Project path set", path=project_path, lang=language)
 
         lang_instruction = get_lang_instruction(language)
-        
+
         if agent_mode:
-            system_prompt = f"""You are a professional AI Software Engineering Agent helping the user work on a local project workspace.
+            system_prompt = f"""You are a professional AI Software Engineering Agent helping the user
+work on a local project workspace.
 You have direct read/write access to the files and can execute terminal commands within this directory.
 {lang_instruction}
 
@@ -263,7 +298,9 @@ YOUR WORKFLOW:
 1. Understand the user's request.
 2. Outline your plan of actions in your thought process.
 3. Perform actions step-by-step using the following TOOL CALLS.
-4. You can call multiple tools at the end of your response in parallel if you need to gather information or make changes to multiple files (e.g. read multiple files or write multiple files). Output all tool calls you want to execute in this turn together.
+4. You can call multiple tools at the end of your response in parallel if you need to gather information
+   or make changes to multiple files (e.g. read multiple files or write multiple files).
+   Output all tool calls you want to execute in this turn together.
 5. Once you have finished all tasks and verified them, output [FINISH] with a final explanation of the changes.
 
 TOOL CALL SYNTAX:
@@ -301,19 +338,32 @@ To call a tool, you MUST output the exact tag format at the very end of your res
 
 RULES:
 - When writing files, ALWAYS output the FULL file content in code block.
-- PREFER [EDIT_FILE] over [WRITE_FILE] when making targeted changes to existing files. Only use [WRITE_FILE] for new files or complete rewrites.
-- CRITICAL AUTO-APPLY: All file changes via [WRITE_FILE] and [EDIT_FILE] are applied automatically and immediately. Do NOT ask for user confirmation. Just make the changes directly.
-- NEVER output code blocks (```) in your text response for file modifications. ALWAYS use [WRITE_FILE] or [EDIT_FILE] tool calls instead. Code blocks in your response text are for explanation/display only, NOT for applying changes.
+- PREFER [EDIT_FILE] over [WRITE_FILE] when making targeted changes to existing files.
+  Only use [WRITE_FILE] for new files or complete rewrites.
+- CRITICAL AUTO-APPLY: All file changes via [WRITE_FILE] and [EDIT_FILE] are applied automatically and immediately.
+  Do NOT ask for user confirmation. Just make the changes directly.
+- NEVER output code blocks (```) in your text response for file modifications.
+  ALWAYS use [WRITE_FILE] or [EDIT_FILE] tool calls instead.
+  Code blocks in your response text are for explanation/display only, NOT for applying changes.
 - Paths must be relative to the project root (no leading '/').
 - You can output multiple tool call tags at the end of your response when you need info or actions on multiple files.
-- For thought process, keep it extremely concise (1-2 sentences) inside . For simple greetings or casual chat, SKIP the thought process and reply immediately.
-- CRITICAL: You must ONLY read files that actually exist in the project. Check the "CURRENT DIRECTORY TREE STRUCTURE" list above to verify if a file exists before trying to read it. Do NOT guess, assume, or hallucinate file paths (e.g. project-overview.md, frontend-architecture.md, etc.) if they are not listed in the tree.
-- CRITICAL: If a file's content is already provided in the ADDITIONAL CONTEXT, DO NOT use [READ_FILE] on it and DO NOT print its code in your response. Answer the user directly!
+- For thought process, keep it extremely concise (1-2 sentences) inside . For simple greetings or casual chat,
+  SKIP the thought process and reply immediately.
+- CRITICAL: You must ONLY read files that actually exist in the project.
+  Check the "CURRENT DIRECTORY TREE STRUCTURE" list above to verify if a file exists before trying to read it.
+  Do NOT guess, assume, or hallucinate file paths (e.g. project-overview.md, frontend-architecture.md, etc.)
+  if they are not listed in the tree.
+- CRITICAL: If a file's content is already provided in the ADDITIONAL CONTEXT, DO NOT use [READ_FILE] on it
+  and DO NOT print its code in your response. Answer the user directly!
 - After writing or editing a file, ALWAYS run [RUN_TESTS] or [LINT_CODE] to verify your changes don't break anything.
-- If the user is only asking a question, explanation, or general query that does NOT require modifying files or running commands, answer the query directly and append [FINISH] at the end of your response. Do NOT call other tools like [READ_FILE] or [LIST_DIR] unnecessarily.
-- CRITICAL RENAME / REFACOR RULE: When the user asks to rename something (a function, variable, class, method, file, folder, or any identifier), you MUST:
+- If the user is only asking a question, explanation, or general query that does NOT require modifying files
+  or running commands, answer the query directly and append [FINISH] at the end of your response.
+  Do NOT call other tools like [READ_FILE] or [LIST_DIR] unnecessarily.
+- CRITICAL RENAME / REFACOR RULE: When the user asks to rename something (a function, variable, class, method,
+  file, folder, or any identifier), you MUST:
   1. First use [SEARCH_FILES: old_name] to find ALL files that reference or contain the old name.
-  2. Then use [REGEX_SEARCH: old_name | *.py] (and similar for *.js, *.ts, etc.) to ensure you don't miss any references.
+  2. Then use [REGEX_SEARCH: old_name | *.py] (and similar for *.js, *.ts, etc.)
+     to ensure you don't miss any references.
   3. Read each file that contains the old name using [READ_FILE].
   4. Update ALL occurrences across ALL files using [EDIT_FILE] on each file.
   5. Only after updating ALL files, output [FINISH].
@@ -347,7 +397,8 @@ export function formatDate(date) {{
 [FINISH]
 """
         else:
-            system_prompt = f"""You are a helpful software engineering assistant helping the user work on a local project workspace.
+            system_prompt = f"""You are a helpful software engineering assistant helping the user
+work on a local project workspace.
 {lang_instruction}
 
 CURRENT DIRECTORY TREE STRUCTURE:
@@ -357,9 +408,11 @@ CURRENT DIRECTORY TREE STRUCTURE:
 {context_str}
 
 Answer the user's questions about the project files directly, explain code, or answer general queries.
-Since you are in direct chat mode, do NOT use any tool call tags such as [READ_FILE], [WRITE_FILE], [LIST_DIR], [SEARCH_FILES], [RUN_COMMAND], or [FINISH].
+Since you are in direct chat mode, do NOT use any tool call tags such as [READ_FILE], [WRITE_FILE], [LIST_DIR],
+[SEARCH_FILES], [RUN_COMMAND], or [FINISH].
 Provide clear, well-structured explanations and code suggestions where appropriate.
-For thought process, keep it extremely concise (1-2 sentences) inside <think>...</think>. For simple greetings or casual chat, SKIP the thought process and reply immediately.
+For thought process, keep it extremely concise (1-2 sentences) inside <think>...</think>.
+For simple greetings or casual chat, SKIP the thought process and reply immediately.
 """
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -384,8 +437,9 @@ For thought process, keep it extremely concise (1-2 sentences) inside <think>...
             log.agent_iteration(session_id, iteration, max_iterations)
 
             # Send iteration status
-            status_msg = f"AI is thinking (Loop {iteration+1}/10)..." if language == 'en' else f"AI đang suy nghĩ (Vòng lặp {iteration+1}/10)..."
-            yield format_sse_event('agent_status', status=status_msg)
+            thinking = f"AI is thinking (Loop {iteration+1}/10)..." if language == 'en' \
+                else f"AI đang suy nghĩ (Vòng lặp {iteration+1}/10)..."
+            yield format_sse_event('agent_status', status=thinking)
             time.sleep(0.1)
 
             # Call Ollama
@@ -393,23 +447,19 @@ For thought process, keep it extremely concise (1-2 sentences) inside <think>...
             log.agent_ollama_call(session_id, iteration, len(messages))
             ollama_start = time.time()
             generator = call_ollama(messages, model, stream=True)
-            
+
             for chunk in generator:
-                if chunk.startswith("data: "):
-                    data_str = chunk[6:].strip()
-                    if data_str != "[DONE]":
-                        try:
-                            data_json = json.loads(data_str)
-                            if "content" in data_json:
-                                content = data_json["content"]
-                                current_answer += content
-                                yield format_sse_event('content', content=content)
-                            elif "error" in data_json:
-                                error_msg = data_json["error"]
-                                log.error("Ollama returned error in stream", error=error_msg)
-                                yield format_sse_event('content', content=f"❌ **Error:** {error_msg}")
-                        except:
-                            pass
+                payload = parse_ollama_sse_chunk(chunk)
+                if not payload:
+                    continue
+                if "content" in payload:
+                    content = payload["content"]
+                    current_answer += content
+                    yield format_sse_event('content', content=content)
+                elif "error" in payload:
+                    error_msg = payload["error"]
+                    log.error("Ollama returned error in stream", error=error_msg)
+                    yield format_sse_event('content', content=f"❌ **Error:** {error_msg}")
 
             ollama_ms = (time.time() - ollama_start) * 1000
             log.agent_ollama_response(session_id, iteration, len(current_answer))
@@ -425,7 +475,8 @@ For thought process, keep it extremely concise (1-2 sentences) inside <think>...
 
             if not tool_calls:
                 log.info("No tool calls → finishing loop")
-                yield format_sse_event('agent_status', status='Finished (No tool call)' if language == 'en' else 'Hoàn thành (Không có tool call)')
+                done_status = 'Finished (No tool call)' if language == 'en' else 'Hoàn thành (Không có tool call)'
+                yield format_sse_event('agent_status', status=done_status)
                 break
 
             # Check for FINISH (may appear alongside other tool calls)
@@ -437,9 +488,9 @@ For thought process, keep it extremely concise (1-2 sentences) inside <think>...
             if not actionable_calls:
                 # Only FINISH (or empty) — nothing to execute
                 log.success("FINISH detected → exiting agent loop")
-                yield format_sse_event('agent_status', status='Agent finished tasks successfully!' if language == 'en' else 'Agent hoàn thành công việc thành công!')
+                yield format_sse_event('agent_status', status=_finish_status(language))
                 break
-            
+
             results_contents = []
             for idx, tool_call in enumerate(actionable_calls):
                 tool_name = tool_call['tool']
@@ -450,13 +501,7 @@ For thought process, keep it extremely concise (1-2 sentences) inside <think>...
                 log.tool_call(tool_name, tool_args, call_id=call_id)
                 yield format_sse_event('tool_call', tool=tool_name, args=tool_args, call_id=call_id)
 
-                tool_status = f"Running tool {tool_name}..." if language == 'en' else f"Đang chạy tool {tool_name}..."
-                if tool_name == 'READ_FILE':
-                    tool_status = f"Reading file: {tool_args.get('path')}..." if language == 'en' else f"Đang đọc file: {tool_args.get('path')}..."
-                elif tool_name == 'WRITE_FILE':
-                    tool_status = f"Writing file: {tool_args.get('path')}..." if language == 'en' else f"Đang ghi file: {tool_args.get('path')}..."
-                elif tool_name == 'RUN_COMMAND':
-                    tool_status = f"Running command: {tool_args.get('command')}..." if language == 'en' else f"Đang chạy lệnh: {tool_args.get('command')}..."
+                tool_status = _tool_running_status(tool_name, tool_args, language)
                 yield format_sse_event('agent_status', status=tool_status)
                 time.sleep(0.05)
 
@@ -475,7 +520,9 @@ For thought process, keep it extremely concise (1-2 sentences) inside <think>...
                 display_result = tool_result
                 if len(display_result) > 5000:
                     display_result = display_result[:5000] + "\n...[output truncated due to length]"
-                yield format_sse_event('tool_result', tool=tool_name, args=tool_args, result=display_result, call_id=call_id)
+                yield format_sse_event(
+                    'tool_result', tool=tool_name, args=tool_args, result=display_result, call_id=call_id
+                )
 
                 post_status = f"Finished tool {tool_name}." if language == 'en' else f"Đã chạy xong tool {tool_name}."
                 yield format_sse_event('agent_status', status=post_status)
@@ -485,11 +532,16 @@ For thought process, keep it extremely concise (1-2 sentences) inside <think>...
                 model_tool_result = tool_result
                 if len(model_tool_result) > 15000:
                     model_tool_result = model_tool_result[:15000] + "\n\n...[content truncated to save context]..."
-                results_contents.append(f"Tool execution result for [{tool_name}] with args {json.dumps(tool_args)}:\n{model_tool_result}")
-            
+                results_contents.append(
+                    f"Tool execution result for [{tool_name}] with args {json.dumps(tool_args)}:\n{model_tool_result}"
+                )
+
             # Combine all results into one user message for the next iteration
             combined_results = "\n\n---\n\n".join(results_contents)
-            log.info("Combining tool results for next iteration", tools_count=len(actionable_calls), results_size=len(combined_results))
+            log.info(
+                "Combining tool results for next iteration",
+                tools_count=len(actionable_calls), results_size=len(combined_results),
+            )
             messages.append({
                 "role": "user",
                 "content": f"Tool execution results:\n\n{combined_results}\n\nPlease proceed to the next step."
@@ -498,7 +550,7 @@ For thought process, keep it extremely concise (1-2 sentences) inside <think>...
             # If FINISH was present alongside other tools, exit after executing them
             if has_finish:
                 log.success("FINISH detected → exiting agent loop (after executing tools)")
-                yield format_sse_event('agent_status', status='Agent finished tasks successfully!' if language == 'en' else 'Agent hoàn thành công việc thành công!')
+                yield format_sse_event('agent_status', status=_finish_status(language))
                 break
 
         # Save final response summary to SQLite
