@@ -173,17 +173,10 @@ def test_doc_upload_rejects_more_than_three_files(client):
 
 def test_project_upload_rejects_traversal_path(client):
     """Ensure a path containing '../' is rejected, not written outside the project dir."""
-    from services.database import db as _db
     from services.models import ProjectSession
     from services.repositories import ProjectSessionRepository
 
-    # Create a placeholder session (delete first to keep the test idempotent —
-    # the app DB persists between runs, so a leftover row must not break setup)
     with client.application.app_context():
-        existing = ProjectSessionRepository.get_by_id("sess_trav")
-        if existing:
-            _db.session.delete(existing)
-            _db.session.commit()
         session = ProjectSession(session_id="sess_trav", is_local=False, status="init", model="test-model")
         ProjectSessionRepository.save(session)
         project_dir = os.path.join(
@@ -213,11 +206,6 @@ def test_project_upload_accepts_valid_relative_path(client):
     from services.repositories import ProjectSessionRepository
 
     with client.application.app_context():
-        from services.database import db as _db
-        existing = ProjectSessionRepository.get_by_id("sess_ok")
-        if existing:
-            _db.session.delete(existing)
-            _db.session.commit()
         session = ProjectSession(session_id="sess_ok", is_local=False, status="init", model="test-model")
         ProjectSessionRepository.save(session)
 
@@ -232,3 +220,57 @@ def test_project_upload_accepts_valid_relative_path(client):
     assert res.status_code == 200, f"got {res.status_code}: {res.get_json()}"
     body = res.get_json()
     assert body["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# File read/write endpoints — path traversal guard via safe_join_project_path
+# ---------------------------------------------------------------------------
+
+def _make_ready_session(client, session_id):
+    from services.models import ProjectSession
+    from services.repositories import ProjectSessionRepository
+
+    with client.application.app_context():
+        session = ProjectSession(session_id=session_id, is_local=False, status="ready", model="test-model")
+        session.project_path = os.path.join(
+            client.application.config["UPLOAD_FOLDER"], "projects", session_id
+        )
+        os.makedirs(session.project_path, exist_ok=True)
+        (os.path.join(session.project_path, "app.py"))
+        with open(os.path.join(session.project_path, "app.py"), "w", encoding="utf-8") as f:
+            f.write("print('ok')\n")
+        ProjectSessionRepository.save(session)
+    return session_id
+
+
+def test_project_file_read_rejects_traversal(client):
+    _make_ready_session(client, "sess_read")
+    res = client.get("/api/project/sess_read/file?path=../secret.txt")
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "Invalid file path"
+
+
+def test_project_file_read_rejects_absolute_path(client):
+    _make_ready_session(client, "sess_abs")
+    res = client.get("/api/project/sess_read/file?path=/etc/passwd")
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "Invalid file path"
+
+
+def test_project_file_read_accepts_valid_path(client):
+    _make_ready_session(client, "sess_valid")
+    res = client.get("/api/project/sess_valid/file?path=app.py")
+    assert res.status_code == 200
+    assert res.get_json()["content"] == "print('ok')\n"
+
+
+def test_project_file_write_rejects_traversal(client):
+    _make_ready_session(client, "sess_write")
+    res = client.post(
+        "/api/project/sess_write/write_file",
+        json={"path": "../../escaped.txt", "content": "evil"},
+    )
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "Invalid file path"
+    escaped = os.path.join(os.getcwd(), "escaped.txt")
+    assert not os.path.exists(escaped), "traversal write escaped project dir!"

@@ -173,10 +173,12 @@ def get_project_file(session_id):
     rel_path = request.args.get('path', '').strip()
     if not rel_path:
         raise InvalidRequestError("File path is required")
-    if '..' in rel_path or rel_path.startswith('/'):
-        raise InvalidRequestError("Invalid file path")
 
-    filepath = os.path.join(session.project_path, rel_path)
+    # Path traversal guard: canonicalize instead of a manual '..' substring check
+    try:
+        filepath = safe_join_project_path(session.project_path, rel_path)
+    except ValueError:
+        raise InvalidRequestError("Invalid file path") from None
     if not os.path.exists(filepath):
         return jsonify({"error": "File not found"}), 404
 
@@ -208,10 +210,13 @@ def write_project_file(session_id):
 
     if not rel_path:
         raise InvalidRequestError("File path is required")
-    if '..' in rel_path or rel_path.startswith('/'):
-        raise InvalidRequestError("Invalid file path")
 
-    filepath = os.path.join(session.project_path, rel_path)
+    # Path traversal guard: canonicalize instead of a manual '..' substring check
+    try:
+        filepath = safe_join_project_path(session.project_path, rel_path)
+    except ValueError:
+        raise InvalidRequestError("Invalid file path") from None
+
     try:
         # Create directories if writing a new file
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -277,10 +282,14 @@ def chat_project(session_id):
         ]
         loaded_files = 0
         for rel_path in context_files:
-            if not rel_path or '..' in rel_path or rel_path.startswith('/'):
+            if not rel_path:
                 continue
-            filepath = os.path.join(project_path, rel_path)
-            if os.path.exists(filepath) and os.path.isfile(filepath):
+            # Path traversal guard: skip any path that escapes the project dir
+            try:
+                filepath = safe_join_project_path(project_path, rel_path)
+            except ValueError:
+                continue
+            if os.path.isfile(filepath):
                 try:
                     with open(filepath, encoding='utf-8', errors='replace') as f:
                         content = f.read()
