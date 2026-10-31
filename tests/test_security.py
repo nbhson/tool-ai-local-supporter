@@ -103,10 +103,18 @@ def test_run_tests_tool_rejects_custom_disallowed_command(tmp_path):
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    """Flask test client with CWD (hence DB/uploads) pointed at a temp dir."""
+    """Flask test client fully isolated from the repository.
+
+    - CWD (hence uploads/) is pointed at a temp dir.
+    - SQLALCHEMY_DATABASE_URI is overridden to a temp-file SQLite database so
+      tests never read/write the repo's instance/ai_local_support.db, which
+      the default relative URI would resolve to regardless of CWD.
+    """
     monkeypatch.chdir(tmp_path)
     from app_factory import create_app
-    app = create_app()
+    app = create_app(config_overrides={
+        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'test.db'}",
+    })
     app.config["TESTING"] = True
     return app.test_client()
 
@@ -252,7 +260,7 @@ def test_project_file_read_rejects_traversal(client):
 
 def test_project_file_read_rejects_absolute_path(client):
     _make_ready_session(client, "sess_abs")
-    res = client.get("/api/project/sess_read/file?path=/etc/passwd")
+    res = client.get("/api/project/sess_abs/file?path=/etc/passwd")
     assert res.status_code == 400
     assert res.get_json()["error"] == "Invalid file path"
 

@@ -19,35 +19,57 @@ logging.basicConfig(
 )
 
 
-def _enable_sqlite_wal():
+_wal_listener_installed = False
+
+
+def _enable_sqlite_wal(app):
     """Enable WAL mode + NORMAL synchronous on every new SQLite connection.
 
     Prevents "database is locked" errors under concurrent write loads. PRAGMA
     synchronous is per-connection, so it must be applied on every connect —
-    not just the first one.
+    not just the first one. The listener is registered once per process on the
+    global Engine class and no-ops for non-SQLite connections, so it stays
+    correct when the DB URI is overridden (e.g. tests using a temp database).
     """
-    if not config.SQLALCHEMY_DATABASE_URI.startswith('sqlite'):
+    global _wal_listener_installed
+    if not app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
         return
+    if _wal_listener_installed:
+        return
+    _wal_listener_installed = True
+
     from sqlalchemy import event
     from sqlalchemy.engine import Engine
 
     @event.listens_for(Engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
+        # Only touch real sqlite3 connections; skip other engines sharing the process
+        if dbapi_connection.__class__.__module__ != "sqlite3":
+            return
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 
-def create_app():
+def create_app(config_overrides=None):
+    """Application factory for the AI Local Supporter web app.
+
+    Args:
+        config_overrides: Optional dict applied on top of the defaults from
+            config.py (e.g. tests overriding SQLALCHEMY_DATABASE_URI to point
+            at a temporary database).
+    """
     app = Flask(__name__, template_folder='templates', static_folder='static')
-    _enable_sqlite_wal()
     app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
     app.config['MAX_CONTENT_LENGTH'] = config.MAX_CONTENT_LENGTH
     app.config['SQLALCHEMY_DATABASE_URI'] = config.SQLALCHEMY_DATABASE_URI
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['CELERY_BROKER_URL'] = config.CELERY_BROKER_URL
     app.config['CELERY_RESULT_BACKEND'] = config.CELERY_RESULT_BACKEND
+    if config_overrides:
+        app.config.update(config_overrides)
 
+    _enable_sqlite_wal(app)
     db.init_app(app)
 
     # Import models so SQLAlchemy metadata knows about them before create_all()
