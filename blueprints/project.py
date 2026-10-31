@@ -1,7 +1,7 @@
 import os
 import uuid
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
 import config
@@ -314,6 +314,8 @@ def chat_project(session_id):
 
     # Delegate stream generation to services/agent_service.py
     def stream_response():
+        # Capture the real app during the request; the SSE generator runs after
+        # the request context is popped and needs it for DB access.
         return generate_agent_stream(
             session_id=session_id,
             project_path=project_path,
@@ -322,7 +324,8 @@ def chat_project(session_id):
             model=model,
             context_str=context_str,
             tree_str=tree_str,
-            agent_mode=agent_mode
+            agent_mode=agent_mode,
+            app=current_app._get_current_object()
         )
 
     response = Response(stream_response(), mimetype='text/event-stream')

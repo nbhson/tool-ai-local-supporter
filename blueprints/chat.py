@@ -1,6 +1,6 @@
 import uuid
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 
 import config
 from services.helper_service import (
@@ -89,9 +89,12 @@ def chat_free():
 
     log.info("Free chat request ready", model=model, messages_count=len(messages))
 
+    # Capture the real app object now (during the request); the generator runs
+    # after the request context is popped, so current_app would fail there.
+    app = current_app._get_current_object()
+
     def generate():
-        # Call Ollama using app context since we access DB inside generate()
-        from app import app
+        # Use the app passed in from the request context — DB access inside
         with app.app_context():
             import time
             ollama_start = time.time()

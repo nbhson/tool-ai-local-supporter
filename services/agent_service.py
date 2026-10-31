@@ -273,9 +273,18 @@ def _tool_running_status(tool_name, tool_args, language):
         return template.format(detail=detail)
     return f"Running tool {tool_name}..." if language == 'en' else f"Đang chạy tool {tool_name}..."
 
-def generate_agent_stream(session_id, project_path, question, language, model, context_str, tree_str, agent_mode):
-    """Executes the main ReAct software development agent loop, yielding SSE events."""
-    from app import app
+def generate_agent_stream(session_id, project_path, question, language, model, context_str, tree_str, agent_mode,
+                          app=None):
+    """Executes the main ReAct software development agent loop, yielding SSE events.
+
+    Args:
+        app: Flask app used to push an application context while the generator
+            runs (the generator outlives the request context, so the caller must
+            capture ``current_app._get_current_object()`` during the request).
+            Falls back to importing app.py's global app only when omitted.
+    """
+    if app is None:
+        from app import app  # legacy fallback for callers without a request context
     with app.app_context():
         log.agent_start(session_id, question, model, agent_mode)
         log.info("Project path set", path=project_path, lang=language)

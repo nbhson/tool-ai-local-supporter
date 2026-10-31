@@ -232,8 +232,11 @@ Context from document:
     # Save user message to database
     save_chat_message(session_id, 'user', question)
 
+    # Capture the real app object now (during the request); the generator runs
+    # after the request context is popped, so current_app would fail there.
+    app = current_app._get_current_object()
+
     def generate():
-        from app import app
         with app.app_context():
             generator = call_ollama(messages, model, stream=True)
             full_answer = ""
