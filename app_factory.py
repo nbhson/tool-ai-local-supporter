@@ -94,6 +94,49 @@ def create_app(config_overrides=None):
     def handle_app_error(error):
         return jsonify(error.to_dict()), error.status_code
 
+    @app.route('/health')
+    @app.route('/api/health', methods=['GET'])
+    def health_check():
+        """Liveness/readiness report for the app's three backing services.
+
+        Returns per-component status for database, Ollama and Celery. HTTP 200
+        when every critical component is OK, 503 otherwise (Ollama/Celery are
+        reported but do not fail the request — the app degrades gracefully
+        without them).
+        """
+        checks = {}
+
+        # Database — must be reachable for the app to function at all
+        try:
+            from sqlalchemy import text
+            db.session.execute(text('SELECT 1'))
+            db.session.rollback()
+            checks['database'] = {'status': 'ok'}
+        except Exception as e:
+            checks['database'] = {'status': 'error', 'detail': str(e)}
+
+        # Ollama — inference backend; app starts without it but chat won't work
+        try:
+            response = requests.get(f"{config.OLLAMA_URL}/tags", timeout=2)
+            response.raise_for_status()
+            checks['ollama'] = {'status': 'ok'}
+        except Exception:
+            checks['ollama'] = {'status': 'unavailable'}
+
+        # Celery — background document processing; app degrades without workers
+        try:
+            from celery_app import celery
+            ping = celery.control.ping(timeout=1.0)
+            checks['celery'] = {'status': 'ok' if ping else 'unreachable'}
+        except Exception:
+            checks['celery'] = {'status': 'unreachable'}
+
+        healthy = checks['database']['status'] == 'ok'
+        return jsonify({
+            'status': 'healthy' if healthy else 'unhealthy',
+            'checks': checks,
+        }), (200 if healthy else 503)
+
     @app.route('/')
     def index():
         return render_template('index.html')
