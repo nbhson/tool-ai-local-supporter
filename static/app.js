@@ -213,11 +213,12 @@ async function sendMessage() {
         await readStream(res, bubble, '');
     } catch (err) {
         removeTypingIndicator();
+        const errorLabel = state.language === 'vi' ? '❌ **Lỗi:**' : '❌ **Error:**';
         const msgDiv = document.createElement('div');
         msgDiv.className = `message assistant`;
         msgDiv.innerHTML = `
             <div class="message-avatar"><span class="material-symbols-rounded">smart_toy</span></div>
-            <div class="message-bubble">${formatMessage(`❌ **Lỗi:** ${err.message}`)}</div>
+            <div class="message-bubble">${formatMessage(`${errorLabel} ${err.message}`)}</div>
         `;
         targetMessages.appendChild(msgDiv);
         showToast('❌', err.message);
@@ -386,7 +387,8 @@ async function readStream(response, messageBubbleElement, prefixText = "") {
                         fullText += data.content;
                         scheduleDOMUpdate(container, wasAtBottom);
                     } else if (data.error) {
-                        fullText += `\n❌ **Lỗi:** ${data.error}`;
+                        const errorLabel = state.language === 'vi' ? '❌ **Lỗi:**' : '❌ **Error:**';
+                        fullText += `\n${errorLabel} ${data.error}`;
                         scheduleDOMUpdate(container, wasAtBottom);
                     }
                 } catch (e) {

@@ -1517,7 +1517,8 @@ async function sendProjectMessage() {
                             const status = data.result.startsWith('Error') ? 'error' : 'success';
                             await updateAgentTimelineStep(stepId, status, data.result, data.tool, data.args);
                         } else if (data.error) {
-                            updateAgentText(bubble, `❌ **Lỗi:** ${data.error}`);
+                            const errorLabel = state.language === 'vi' ? '❌ **Lỗi:**' : '❌ **Error:**';
+                            updateAgentText(bubble, `${errorLabel} ${data.error}`);
                         }
                     } catch (e) {
                         console.warn("Failed to parse JSON chunk:", dataStr, e);
@@ -1533,11 +1534,12 @@ async function sendProjectMessage() {
         projectChatMessages.scrollTop = projectChatMessages.scrollHeight;
     } catch (err) {
         removeTypingIndicator();
+        const errorLabel = state.language === 'vi' ? '❌ **Lỗi:**' : '❌ **Error:**';
         const msgDiv = document.createElement('div');
         msgDiv.className = `message assistant`;
         msgDiv.innerHTML = `
             <div class="message-avatar"><span class="material-symbols-rounded">smart_toy</span></div>
-            <div class="message-bubble">${formatProjectMessage(`❌ **Lỗi:** ${err.message}`)}</div>
+            <div class="message-bubble">${formatProjectMessage(`${errorLabel} ${err.message}`)}</div>
         `;
         projectChatMessages.appendChild(msgDiv);
         showToast('❌', err.message);
